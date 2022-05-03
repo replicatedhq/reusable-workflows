@@ -1,0 +1,61 @@
+on:
+  workflow_call:
+    inputs:
+      envPath:
+        description: "Which env to target (staging/production)"
+        required: true
+        default: "replicatd-staging"
+        type: string
+    secrets:
+      terraformIamServiceAccount:
+        required: false
+
+
+jobs:
+  checkov scan:
+    runs-on: ubuntu-latest
+    container:
+      image: bridgecrew/checkov:2
+
+    steps:
+      # Important: This sets up your GITHUB_WORKSPACE environment variable
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Run checkov scan on ${{ inputs.envPath }}
+        run: checkov -d ${{ input.envPath }}
+        continue-on-failure: true
+
+  # tfsec scan:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: tfsec/tfsec:v1.13.2
+  #
+  #   steps:
+  #     # Important: This sets up your GITHUB_WORKSPACE environment variable
+  #     - name: Checkout repo
+  #       uses: actions/checkout@v2
+  #
+  #     - name: Run checkov scan on ${{ inputs.envPath }}
+  #       run: checkov -d ${{ input.envPath }}
+  #       continue-on-failure: true
+
+  terraform validate:
+    runs-on: ubuntu-latest
+    container:
+      image: hashicorp/terraform:1.0.11
+
+    steps:
+      # Important: This sets up your GITHUB_WORKSPACE environment variable
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: CD into ${{ inputs.envPath }}
+        run: cd ${{ input.envPath }}
+
+      - name: Run terraform init
+        run: terraform init
+
+      - name: Run terraform validate
+        run: terraform validate
+        continue-on-failure: true
