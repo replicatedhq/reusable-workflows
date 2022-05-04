@@ -35,7 +35,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: bridgecrew/checkov:2
-    if: always()
 
     steps:
       - name: Checkout repo
