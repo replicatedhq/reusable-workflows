@@ -60,6 +60,5 @@ jobs:
           ${{ inputs.csp_region}}: ${{ inputs.region }}
         run: |
              cd ${{ inputs.envPath }}
-             env
              terraform init
              terraform validate
