@@ -1,0 +1,57 @@
+
+on:
+  workflow_call:
+    inputs:
+      envPath:
+        description: "Which env to target (staging/production)"
+        required: true
+        type: string
+      csp_access_key_id_env_var:
+        description: "CSP env name used to authenticate"
+        required: false
+        type: string
+      csp_access_key_env_var:
+        description: "CSP env name used to authenticate"
+        required: false
+        type: string
+      csp_region:
+        description: "CSP region env name"
+        required: false
+        type: string
+      region:
+        description: "CSP region to deploy to"
+        required: false
+        type: string
+    secrets:
+      csp_access_key_id:
+        description: "Access key id used to authenticate"
+        required: false
+      csp_access_key:
+        description: "Access key used to authenticate"
+        required: false
+
+
+jobs:
+  terraform_apply:
+    runs-on: ubuntu-latest
+    container:
+      image: hashicorp/terraform:1.0.11
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Download plan
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ inputs.envPath }}
+
+      - name: Run terraform apply
+        env:
+          ${{ inputs.csp_access_key_id_env_var}}: ${{ secrets.csp_access_key_id }}
+          ${{ inputs.csp_access_key_env_var}}: ${{ secrets.csp_access_key }}
+          ${{ inputs.csp_region}}: ${{ inputs.region }}
+        run: |
+             cd ${{ inputs.envPath }}
+             terraform init
+             terraform apply ${{ inputs.envPath }}
