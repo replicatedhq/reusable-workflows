@@ -44,7 +44,7 @@ jobs:
       - name: Download plan
         uses: actions/download-artifact@v3
         with:
-          name: ${{ inputs.envPath }}
+          name: ${{ inputs.envPath }}-plan
 
       - name: Run terraform apply
         env:
@@ -52,6 +52,9 @@ jobs:
           ${{ inputs.csp_access_key_env_var}}: ${{ secrets.csp_access_key }}
           ${{ inputs.csp_region}}: ${{ inputs.region }}
         run: |
+             ls
+             cp ${{ input.envPath }}-plan ${{ inputs.envPath }}/
              cd ${{ inputs.envPath }}
-             terraform init
-             terraform apply ${{ inputs.envPath }}
+             ls
+             # terraform init
+             # terraform apply ${{ inputs.envPath }}
