@@ -54,5 +54,5 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ inputs.envPath }}-plan
-          path: ${{ inputs.envPath }}-plan
+          path: ${{ inputs.envPath }}/${{ inputs.envPath }}-plan
           retention-days: 1
