@@ -72,8 +72,8 @@ jobs:
       - name: Run terraform init
         run: |
              cd ${{ inputs.envPath }}
-             export ${{ inputs.csp_access_key_id_env_var}}=${{ inputs.csp_access_key_id }}
-             export ${{ inputs.csp_access_key_env_var}}=${{ inputs.csp_access_key }}
+             export ${{ inputs.csp_access_key_id_env_var}}=${{ secrets.csp_access_key_id }}
+             export ${{ inputs.csp_access_key_env_var}}=${{ secrets.csp_access_key }}
              export ${{ inputs.csp_region}}=${{ inputs.region }}
              terraform init
              terraform validate
