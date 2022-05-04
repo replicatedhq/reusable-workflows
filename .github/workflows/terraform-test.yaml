@@ -50,7 +50,7 @@ jobs:
 
       - name: Run terraform init
         run: |
-             cd ${{ input.envPath }}
+             cd ${{ inputs.envPath }}
              terraform init
 
       - name: Run terraform validate
