@@ -55,4 +55,4 @@ jobs:
         run: |
              cd ${{ inputs.envPath }}
              terraform init
-             terraform apply -auto-approve ${{ inputs.envPath }}-plan
+             terraform apply -auto-approve "${{ inputs.envPath }}-plan"
