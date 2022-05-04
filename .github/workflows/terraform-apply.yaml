@@ -57,4 +57,4 @@ jobs:
              cd ${{ inputs.envPath }}
              ls
              # terraform init
-             # terraform apply ${{ inputs.envPath }}
+             # terraform apply ${{ inputs.envPath }} -auto-approve
