@@ -21,9 +21,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v2
 
-      - name: debug
-        run: ls
-
       - name: Run checkov scan on ${{ inputs.envPath }}
         run: checkov -d ${{ inputs.envPath }}
 
@@ -50,6 +47,9 @@ jobs:
       # Important: This sets up your GITHUB_WORKSPACE environment variable
       - name: Checkout repo
         uses: actions/checkout@v2
+
+      - name: debug
+        run: ls
 
       - name: CD into ${{ inputs.envPath }}
         run: cd ${{ inputs.envPath }}
