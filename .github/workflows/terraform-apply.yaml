@@ -45,7 +45,7 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: ${{ inputs.envPath }}-plan
-          path: ${{ inputs.envPath }}/${{ inputs.envPath }}-plan
+          path: ${{ inputs.envPath }}
 
       - name: Run terraform apply
         env:
