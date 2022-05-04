@@ -22,7 +22,11 @@ on:
         required: false
         type: string
       csp_region:
-        description: "CSP region"
+        description: "CSP region env name"
+        required: false
+        type: string
+      region:
+        description: "CSP region to deploy to"
         required: false
         type: string
 
