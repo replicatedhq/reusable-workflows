@@ -48,13 +48,9 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v2
 
-      - name: CD into ${{ inputs.envPath }}
-        run: cd ${{ inputs.envPath }}
-
       - name: Run terraform init
         run: |
-             ls
-             pwd
+             cd ${{ input.envPath }}
              terraform init
 
       - name: Run terraform validate
