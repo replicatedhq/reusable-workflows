@@ -5,14 +5,6 @@ on:
         description: "Which env to target (staging/production)"
         required: true
         type: string
-      csp_access_key_id:
-        description: "Access key id used to authenticate"
-        required: false
-        type: string
-      csp_access_key:
-        description: "Access key used to authenticate"
-        required: false
-        type: string
       csp_access_key_id_env_var:
         description: "CSP env name used to authenticate"
         required: false
@@ -29,6 +21,14 @@ on:
         description: "CSP region to deploy to"
         required: false
         type: string
+    secrets:
+      csp_access_key_id:
+        description: "Access key id used to authenticate"
+        required: false
+      csp_access_key:
+        description: "Access key used to authenticate"
+        required: false
+
 
 
 jobs:
