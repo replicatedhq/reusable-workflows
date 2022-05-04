@@ -30,7 +30,6 @@ on:
         required: false
 
 
-
 jobs:
   checkov_scan:
     runs-on: ubuntu-latest
@@ -45,19 +44,6 @@ jobs:
       - name: Run checkov scan on ${{ inputs.envPath }}
         run: checkov -d ${{ inputs.envPath }}
 
-  tfsec_scan:
-    runs-on: ubuntu-latest
-    container:
-      image: tfsec/tfsec:v1.13.2-amd64
-    if: always()
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
-
-      - name: Run checkov scan on ${{ inputs.envPath }}
-        run: tfsec ${{ inputs.envPath }}
-
   terraform_validate:
     runs-on: ubuntu-latest
     container:
@@ -68,10 +54,12 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Run terraform validate
+        env:
+          ${{ inputs.csp_access_key_id_env_var}}: ${{ secrets.csp_access_key_id }}
+          ${{ inputs.csp_access_key_env_var}}: ${{ secrets.csp_access_key }}
+          ${{ inputs.csp_region}}: ${{ inputs.region }}
         run: |
              cd ${{ inputs.envPath }}
-             export ${{ inputs.csp_access_key_id_env_var}}=${{ secrets.csp_access_key_id }}
-             export ${{ inputs.csp_access_key_env_var}}=${{ secrets.csp_access_key }}
-             export ${{ inputs.csp_region}}=${{ inputs.region }}
+             env
              terraform init
              terraform validate
