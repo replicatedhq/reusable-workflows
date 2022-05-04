@@ -53,8 +53,6 @@ jobs:
           ${{ inputs.csp_access_key_env_var}}: ${{ secrets.csp_access_key }}
           ${{ inputs.csp_region}}: ${{ inputs.region }}
         run: |
-             ls
              cd ${{ inputs.envPath }}
-             ls
-             # terraform init
-             # terraform apply ${{ inputs.envPath }} -auto-approve
+             terraform init
+             terraform apply ${{ inputs.envPath }} -auto-approve
