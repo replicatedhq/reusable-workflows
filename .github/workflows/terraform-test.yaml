@@ -5,9 +5,26 @@ on:
         description: "Which env to target (staging/production)"
         required: true
         type: string
-    secrets:
-      terraformIamServiceAccount:
+      csp_access_key_id:
+        description: "Access key id used to authenticate"
         required: false
+        type: string
+      csp_access_key:
+        description: "Access key used to authenticate"
+        required: false
+        type: string
+      csp_access_key_id_env_var:
+        description: "CSP env name used to authenticate"
+        required: false
+        type: string
+      csp_access_key_env_var:
+        description: "CSP env name used to authenticate"
+        required: false
+        type: string
+      csp_region:
+        description: "CSP region"
+        required: false
+        type: string
 
 
 jobs:
@@ -51,5 +68,8 @@ jobs:
       - name: Run terraform init
         run: |
              cd ${{ inputs.envPath }}
+             export ${{ inputs.csp_access_key_id_env_var}}=${{ inputs.csp_access_key_id }}
+             export ${{ inputs.csp_access_key_env_var}}=${{ inputs.csp_access_key }}
+             export ${{ inputs.csp_region}}=${{ inputs.region }}
              terraform init
              terraform validate
