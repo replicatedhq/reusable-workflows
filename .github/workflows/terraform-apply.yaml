@@ -45,6 +45,7 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: ${{ inputs.envPath }}-plan
+          path: ${{ inputs.envPath }}/${{ inputs.envPath }}-plan
 
       - name: Run terraform apply
         env:
@@ -53,7 +54,6 @@ jobs:
           ${{ inputs.csp_region}}: ${{ inputs.region }}
         run: |
              ls
-             cp ${{ inputs.envPath }}-plan ${{ inputs.envPath }}/
              cd ${{ inputs.envPath }}
              ls
              # terraform init
