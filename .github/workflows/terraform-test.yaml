@@ -4,7 +4,6 @@ on:
       envPath:
         description: "Which env to target (staging/production)"
         required: true
-        default: "replicatd-staging"
         type: string
     secrets:
       terraformIamServiceAccount:
