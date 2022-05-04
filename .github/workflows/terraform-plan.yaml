@@ -48,7 +48,7 @@ jobs:
         run: |
              cd ${{ inputs.envPath }}
              terraform init
-             terraform plan -o ${{ inputs.envPath }}
+             terraform plan -out=${{ inputs.envPath }}
 
       - name: 'Upload Plan'
         uses: actions/upload-artifact@v3
