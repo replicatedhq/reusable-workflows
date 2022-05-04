@@ -48,7 +48,7 @@ jobs:
   tfsec_scan:
     runs-on: ubuntu-latest
     container:
-      image: tfsec/tfsec:v1.13.2
+      image: tfsec/tfsec:v1.13.2-amd64
     if: always()
 
     steps:
