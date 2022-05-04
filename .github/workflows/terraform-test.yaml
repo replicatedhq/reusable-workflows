@@ -21,6 +21,9 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v2
 
+      - name: debug
+        run: ls
+
       - name: Run checkov scan on ${{ inputs.envPath }}
         run: checkov -d ${{ inputs.envPath }}
 
