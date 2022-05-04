@@ -53,7 +53,7 @@ jobs:
           ${{ inputs.csp_region}}: ${{ inputs.region }}
         run: |
              ls
-             cp ${{ input.envPath }}-plan ${{ inputs.envPath }}/
+             cp ${{ inputs.envPath }}-plan ${{ inputs.envPath }}/
              cd ${{ inputs.envPath }}
              ls
              # terraform init
