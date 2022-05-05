@@ -29,36 +29,6 @@ on:
       csp_access_key:
         description: "Access key used to authenticate"
         required: true
-  workflow_dispatch:
-    inputs:
-      envPath:
-        description: "Which env to target (staging/production)"
-        required: true
-        type: string
-      csp_access_key_id_env_var:
-        description: "CSP env name used to authenticate"
-        required: true
-        type: string
-      csp_access_key_env_var:
-        description: "CSP env name used to authenticate"
-        required: true
-        type: string
-      csp_region:
-        description: "CSP region env name"
-        required: true
-        type: string
-      region:
-        description: "CSP region to deploy to"
-        required: true
-        type: string
-    secrets:
-      csp_access_key_id:
-        description: "Access key id used to authenticate"
-        required: true
-      csp_access_key:
-        description: "Access key used to authenticate"
-        required: true
-
 
 jobs:
   terraform_apply:
