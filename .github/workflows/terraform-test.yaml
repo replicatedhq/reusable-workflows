@@ -43,18 +43,6 @@ jobs:
       - name: Run checkov scan on ${{ inputs.envPath }}
         run: checkov --quiet --compact -d ${{ inputs.envPath }}
 
-  tfsec:
-    runs-on: ubuntu-latest
-    container:
-      image: aquasec/tfsec-ci:v1.19.1
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
-
-      - name: Run checkov scan on ${{ inputs.envPath }}
-        run: tfsec .
-
   fmt:
     runs-on: ubuntu-latest
     container:
