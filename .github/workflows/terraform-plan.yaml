@@ -31,7 +31,7 @@ on:
 
 jobs:
 
-  terraform_plan:
+  plan:
     runs-on: ubuntu-latest
     container:
       image: hashicorp/terraform:1.0.11
