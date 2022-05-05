@@ -7,27 +7,27 @@ on:
         type: string
       csp_access_key_id_env_var:
         description: "CSP env name used to authenticate"
-        required: false
+        required: true
         type: string
       csp_access_key_env_var:
         description: "CSP env name used to authenticate"
-        required: false
+        required: true
         type: string
       csp_region:
         description: "CSP region env name"
-        required: false
+        required: true
         type: string
       region:
         description: "CSP region to deploy to"
-        required: false
+        required: true
         type: string
     secrets:
       csp_access_key_id:
         description: "Access key id used to authenticate"
-        required: false
+        required: true
       csp_access_key:
         description: "Access key used to authenticate"
-        required: false
+        required: true
 
 
 jobs:
