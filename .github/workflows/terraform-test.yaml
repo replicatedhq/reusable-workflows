@@ -1,0 +1,75 @@
+on:
+  workflow_call:
+    inputs:
+      envPath:
+        description: "Which env to target (staging/production)"
+        required: true
+        type: string
+      csp_iam_account_id_env_name:
+        description: "Name of env name to provide iam account id"
+        required: true
+        type: string
+      csp_iam_account_secret_env_name:
+        description: "Name of env name to provide iam account secret"
+        required: true
+        type: string
+      csp_region_env_name:
+        description: "CSP region env name"
+        required: true
+        type: string
+      region:
+        description: "CSP region to deploy to"
+        required: true
+        type: string
+    secrets:
+      iam_account_id:
+        description: "Account id used to authenticate"
+        required: true
+      iam_account_secret:
+        description: "Account password used to authenticate"
+        required: true
+
+jobs:
+
+  checkov:
+    runs-on: ubuntu-latest
+    container:
+      image: bridgecrew/checkov:2
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Run checkov scan on ${{ inputs.envPath }}
+        run: checkov --quiet --compact -d ${{ inputs.envPath }}
+
+  fmt:
+    runs-on: ubuntu-latest
+    container:
+      image: hashicorp/terraform:1.0.11
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Run terraform fmt
+        run: terraform fmt -recursive -check -diff
+
+  validate:
+    runs-on: ubuntu-latest
+    container:
+      image: hashicorp/terraform:1.0.11
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Run terraform validate
+        env:
+          ${{ inputs.csp_iam_account_id_env_name }}: ${{ secrets.iam_account_id }}
+          ${{ inputs.csp_iam_account_secret_env_name }}: ${{ secrets.iam_account_secret }}
+          ${{ inputs.csp_region_env_name }}: ${{ inputs.region }}
+        run: |
+             cd ${{ inputs.envPath }}
+             terraform init
+             terraform validate

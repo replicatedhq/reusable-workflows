@@ -1,0 +1,57 @@
+on:
+  workflow_call:
+    inputs:
+      envPath:
+        description: "Which env to target (staging/production)"
+        required: true
+        type: string
+      csp_iam_account_id_env_name:
+        description: "Name of env name to provide iam account id"
+        required: true
+        type: string
+      csp_iam_account_secret_env_name:
+        description: "Name of env name to provide iam account secret"
+        required: true
+        type: string
+      csp_region_env_name:
+        description: "CSP region env name"
+        required: true
+        type: string
+      region:
+        description: "CSP region to deploy to"
+        required: true
+        type: string
+    secrets:
+      iam_account_id:
+        description: "Account id used to authenticate"
+        required: true
+      iam_account_secret:
+        description: "Account password used to authenticate"
+        required: true
+
+jobs:
+
+  apply:
+    runs-on: ubuntu-latest
+    container:
+      image: hashicorp/terraform:1.0.11
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Download plan
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ inputs.envPath }}-plan
+          path: ${{ inputs.envPath }}
+
+      - name: Run terraform apply
+        env:
+          ${{ inputs.csp_iam_account_id_env_name }}: ${{ secrets.iam_account_id }}
+          ${{ inputs.csp_iam_account_secret_env_name }}: ${{ secrets.iam_account_secret }}
+          ${{ inputs.csp_region_env_name }}: ${{ inputs.region }}
+        run: |
+             cd ${{ inputs.envPath }}
+             terraform init
+             terraform apply -auto-approve "${{ inputs.envPath }}-plan"
