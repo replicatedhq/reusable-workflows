@@ -43,6 +43,21 @@ jobs:
       - name: Run checkov scan on ${{ inputs.envPath }}
         run: checkov -d ${{ inputs.envPath }}
 
+
+  terraform_fmt:
+    runs-on: ubuntu-latest
+    container:
+      image: hashicorp/terraform:1.0.11
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Run terraform fmt
+        run: |
+             cd ${{ inputs.envPath }}
+             terraform fmt -recursive -check -diff
+
   terraform_validate:
     runs-on: ubuntu-latest
     container:
