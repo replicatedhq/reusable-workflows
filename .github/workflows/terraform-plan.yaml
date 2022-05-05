@@ -5,15 +5,15 @@ on:
         description: "Which env to target (staging/production)"
         required: true
         type: string
-      csp_access_key_id_env_var:
-        description: "CSP env name used to authenticate"
+      csp_iam_account_id_env_name:
+        description: "Name of env name to provide iam account id"
         required: true
         type: string
-      csp_access_key_env_var:
-        description: "CSP env name used to authenticate"
+      csp_iam_account_secret_env_name:
+        description: "Name of env name to provide iam account secret"
         required: true
         type: string
-      csp_region:
+      csp_region_env_name:
         description: "CSP region env name"
         required: true
         type: string
@@ -22,11 +22,11 @@ on:
         required: true
         type: string
     secrets:
-      csp_access_key_id:
-        description: "Access key id used to authenticate"
+      iam_account_id:
+        description: "Account id used to authenticate"
         required: true
-      csp_access_key:
-        description: "Access key used to authenticate"
+      iam_account_secret:
+        description: "Account password used to authenticate"
         required: true
 
 jobs:
@@ -42,9 +42,9 @@ jobs:
 
       - name: Run terraform plan
         env:
-          ${{ inputs.csp_access_key_id_env_var}}: ${{ secrets.csp_access_key_id }}
-          ${{ inputs.csp_access_key_env_var}}: ${{ secrets.csp_access_key }}
-          ${{ inputs.csp_region}}: ${{ inputs.region }}
+          ${{ inputs.csp_iam_account_id_env_name }}: ${{ secrets.iam_account_id }}
+          ${{ inputs.csp_iam_account_secret_env_name }}: ${{ secrets.iam_account_secret }}
+          ${{ inputs.csp_region_env_name }}: ${{ inputs.region }}
         run: |
              cd ${{ inputs.envPath }}
              terraform init
