@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Run checkov scan on ${{ inputs.envPath }}
-        run: checkov -d ${{ inputs.envPath }}
+        run: checkov --quiet -d ${{ inputs.envPath }}
 
 
   terraform_fmt:
