@@ -29,8 +29,8 @@ on:
         description: "Access key used to authenticate"
         required: true
 
-
 jobs:
+
   checkov_scan:
     runs-on: ubuntu-latest
     container:
