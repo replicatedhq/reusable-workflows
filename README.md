@@ -13,6 +13,6 @@
 ```
 3. Keep the workflows as sanitized as possible as this is a public repo and we don't want any internal information here.
 - Use inputs and secrets where possible.
-    - Keep the names of these as vague as possible
+    - Keep the names of these as agnostic as possible
         - These can be more more specific once pulled into your project repo
 
