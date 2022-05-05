@@ -55,7 +55,6 @@ jobs:
 
       - name: Run terraform fmt
         run: |
-             cd ${{ inputs.envPath }}
              terraform fmt -recursive -check -diff
 
   terraform_validate:
