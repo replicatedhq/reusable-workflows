@@ -2,6 +2,7 @@
 
 ## How to use (WIP)
 1. All shareable workflows must be created under `.github/workflows/`
+  - Subdirectories are not supported.
 2. Naming convention is up for discussion, but current workflows are named as follows:
 ```
 .github/workflows/<tool>-<action>.yaml
