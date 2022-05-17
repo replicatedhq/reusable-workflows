@@ -5,6 +5,10 @@ on:
         description: "Which env to target (staging/production)"
         required: true
         type: string
+      planName:
+        description: "Plan name"
+        required: true
+        type: string
       csp_iam_account_id_env_name:
         description: "Name of env name to provide iam account id"
         required: true
@@ -48,11 +52,11 @@ jobs:
         run: |
              cd ${{ inputs.envPath }}
              terraform init
-             terraform plan -out=${{ inputs.envPath }}-plan
+             terraform plan -out=${{ inputs.planName }}
 
       - name: 'Upload Plan'
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ inputs.envPath }}-plan
-          path: ${{ inputs.envPath }}/${{ inputs.envPath }}-plan
+          name: ${{ inputs.planName }}
+          path: ${{ inputs.envPath }}/${{ inputs.planName }}
           retention-days: 1
