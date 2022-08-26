@@ -1,0 +1,15 @@
+name: Enforce pull request labels
+
+on:
+  workflow_call:
+    
+jobs:
+  enforce-labels:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: mheap/github-action-required-labels@v2
+      with:
+        mode: exactly
+        count: 1
+        labels: "type::security, type::feature, type::bug, type::chore"
+
