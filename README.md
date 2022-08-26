@@ -29,7 +29,7 @@ on:
 ```yaml
 jobs:
   greet:
-    uses: replicatedhq/reusable-workflows/.github/workflows/say-hello.yaml
+    uses: replicatedhq/reusable-workflows/.github/workflows/say-hello.yaml@main
     with:
       greeting: Hi there!
 ```
