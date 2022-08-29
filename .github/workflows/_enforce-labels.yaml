@@ -1,0 +1,12 @@
+name: Enforce PR labels (self)
+
+on: 
+  pull_request:
+    types:
+      - opened
+      - labeled
+      - unlabeled
+      - synchronize
+jobs:
+  enforce-labels:
+    uses: ./.github/workflows/pr-enforce-labels.yaml
