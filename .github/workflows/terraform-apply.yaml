@@ -60,9 +60,9 @@ jobs:
 
       - name: Run terraform apply
         env:
-          ${{ inputs.csp_iam_account_id_env_name }}: ${{ secrets.iam_account_id }}
-          ${{ inputs.csp_iam_account_secret_env_name }}: ${{ secrets.iam_account_secret }}
-          ${{ inputs.csp_region_env_name }}: ${{ inputs.region }}
+          ${{inputs.csp_iam_account_id_env_name}}: ${{ secrets.iam_account_id }}
+          ${{inputs.csp_iam_account_secret_env_name}}: ${{ secrets.iam_account_secret }}
+          ${{inputs.csp_region_env_name}}: ${{ inputs.region }}
         run: |
              cd ${{ inputs.envPath }}
              terraform init
