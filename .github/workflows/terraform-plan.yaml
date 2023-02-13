@@ -46,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Setup terraform
         uses: hashicorp/setup-terraform@v2
@@ -55,9 +55,9 @@ jobs:
 
       - name: Run terraform plan
         env:
-          ${{ inputs.csp_iam_account_id_env_name }}: ${{ secrets.iam_account_id }}
-          ${{ inputs.csp_iam_account_secret_env_name }}: ${{ secrets.iam_account_secret }}
-          ${{ inputs.csp_region_env_name }}: ${{ inputs.region }}
+          ${{inputs.csp_iam_account_id_env_name}}: ${{ secrets.iam_account_id }}
+          ${{inputs.csp_iam_account_secret_env_name}}: ${{ secrets.iam_account_secret }}
+          ${{inputs.csp_region_env_name}}: ${{ inputs.region }}
         run: |
              cd ${{ inputs.envPath }}
              terraform init
