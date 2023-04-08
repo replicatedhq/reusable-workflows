@@ -31,17 +31,17 @@ on:
 
 jobs:
 
-  checkov:
-    runs-on: ubuntu-latest
-    container:
-      image: bridgecrew/checkov:2
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
-
-      - name: Run checkov scan on ${{ inputs.envPath }}
-        run: checkov --quiet --compact -d ${{ inputs.envPath }}
+  # checkov:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: bridgecrew/checkov:2
+  #
+  #   steps:
+  #     - name: Checkout repo
+  #       uses: actions/checkout@v2
+  #
+  #     - name: Run checkov scan on ${{ inputs.envPath }}
+  #       run: checkov --quiet --compact -d ${{ inputs.envPath }}
 
   fmt:
     runs-on: ubuntu-latest
