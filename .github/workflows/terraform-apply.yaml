@@ -30,6 +30,10 @@ on:
         required: false
         type: string
         default: ubuntu-latest
+      environment:
+        description: "Github Actions environment"
+        required: false
+        type: string
     secrets:
       iam_account_id:
         description: "Account id used to authenticate"
@@ -42,6 +46,7 @@ jobs:
 
   apply:
     runs-on: ${{ inputs.runner }}
+    environment: ${{ inputs.environment }}
 
     steps:
       - name: Checkout repo
