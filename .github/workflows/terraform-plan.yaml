@@ -60,7 +60,7 @@ jobs:
           ${{ inputs.csp_region_env_name }}: ${{ inputs.region }}
         run: |
              cd ${{ inputs.envPath }}
-             terraform init
+             terraform init -upgrade
              terraform plan -out=${{ inputs.planName }}
 
       - name: 'Upload Plan'
