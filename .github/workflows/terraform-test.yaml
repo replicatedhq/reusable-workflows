@@ -38,7 +38,7 @@ jobs:
   #
   #   steps:
   #     - name: Checkout repo
-  #       uses: actions/checkout@v2
+  #       uses: actions/checkout@v4
   #
   #     - name: Run checkov scan on ${{ inputs.envPath }}
   #       run: checkov --quiet --compact -d ${{ inputs.envPath }}
@@ -50,7 +50,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Run terraform fmt
         run: terraform fmt -recursive -check -diff
@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Run terraform validate
         env:
