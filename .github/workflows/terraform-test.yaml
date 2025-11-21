@@ -21,6 +21,11 @@ on:
         description: "CSP region to deploy to"
         required: true
         type: string
+      terraform_version:
+        description: "Terraform version to use"
+        required: false
+        type: string
+        default: "1.4.6"
     secrets:
       iam_account_id:
         description: "Account id used to authenticate"
@@ -45,24 +50,30 @@ jobs:
 
   fmt:
     runs-on: ubuntu-latest
-    container:
-      image: hashicorp/terraform:1.4.6
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Setup terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
 
       - name: Run terraform fmt
         run: terraform fmt -recursive -check -diff
 
   validate:
     runs-on: ubuntu-latest
-    container:
-      image: hashicorp/terraform:1.4.6
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Setup terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
 
       - name: Run terraform validate
         env:

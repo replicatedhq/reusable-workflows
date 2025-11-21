@@ -34,6 +34,11 @@ on:
         description: "Github Actions environment"
         required: false
         type: string
+      terraform_version:
+        description: "Terraform version to use"
+        required: false
+        type: string
+        default: "1.4.6"
     secrets:
       iam_account_id:
         description: "Account id used to authenticate"
@@ -61,7 +66,7 @@ jobs:
       - name: Setup terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.4.6
+          terraform_version: ${{ inputs.terraform_version }}
 
       - name: Run terraform apply
         env:
