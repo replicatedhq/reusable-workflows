@@ -1,0 +1,95 @@
+name: Notify Release
+
+on:
+  workflow_call:
+    inputs:
+      repo_name:
+        required: false
+        type: string
+        description: 'Repository name to display in the Slack message. Defaults to the calling repository name.'
+        default: ''
+      tag:
+        required: true
+        type: string
+        description: 'Release tag being published (e.g., 3.0.0, v1.2.3)'
+      previous_sha:
+        required: false
+        type: string
+        description: 'Previous release short SHA for compare link. Auto-discovered from latest release if not provided.'
+    secrets:
+      slack_webhook:
+        required: true
+        description: 'Slack incoming webhook URL for posting release notifications'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve repository name
+        id: repo
+        run: |
+          if [ -n "${{ inputs.repo_name }}" ]; then
+            echo "name=${{ inputs.repo_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.event.repository.name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get current SHA
+        id: current
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Get previous release SHA
+        id: previous
+        uses: actions/github-script@v8
+        with:
+          script: |
+            try {
+              const { data: previousRelease } = await github.rest.repos.getLatestRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
+              // getLatestRelease returns target_commitish which is often the branch name,
+              // not the commit SHA. Resolve the tag to its actual commit via getCommit.
+              const { data: commit } = await github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: previousRelease.tag_name,
+              });
+              core.setOutput('sha', commit.sha.substring(0, 7));
+            } catch (error) {
+              core.setOutput('sha', '');
+            }
+
+      - name: Select previous SHA
+        id: selected
+        run: |
+          if [ -n "${{ inputs.previous_sha }}" ]; then
+            echo "sha=${{ inputs.previous_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ steps.previous.outputs.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build compare URL
+        id: compare
+        run: |
+          PREV="${{ steps.selected.outputs.sha }}"
+          CURR="${{ steps.current.outputs.sha }}"
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          if [ -n "$PREV" ]; then
+            echo "url=https://github.com/${OWNER}/${REPO}/compare/${PREV}...${CURR}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://github.com/${OWNER}/${REPO}/releases/tag/${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post to Slack
+        uses: slackapi/slack-github-action@v3.0.1
+        with:
+          webhook: ${{ secrets.slack_webhook }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "<!here> releasing ${{ steps.repo.outputs.name }} ${{ inputs.tag }} ${{ steps.compare.outputs.url }}",
+              "username": "${{ github.actor }}",
+              "icon_url": "https://github.com/${{ github.actor }}.png?size=32"
+            }
