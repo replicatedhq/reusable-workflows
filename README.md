@@ -8,7 +8,7 @@ More information on using reusable workflows can be found [here](https://docs.gi
 
 | Workflow | File | Purpose |
 |----------|------|---------|
-| **Notify Release** | [`.github/workflows/notify-release/notify-release.yml`](.github/workflows/notify-release/notify-release.yml) ([docs](.github/workflows/notify-release/README.md)) | Post a Slack notification when a release is published, including a compare link to the previous release |
+| **Notify Release** | [`.github/workflows/notify-release.yml`](.github/workflows/notify-release.yml) ([docs](.github/workflows/notify-release/README.md)) | Post a Slack notification when a release is published, including a compare link to the previous release |
 
 ## Usage
 1. Create a workflow yaml file under `.github/workflows`. Where possible, use the naming convention `<domain>-<action>.yaml`, e.g. `pr-enforce-labels.yaml`. \[[docs](https://docs.github.com/en/enterprise-cloud@latest/actions/using-workflows/reusing-workflows#example-reusable-workflow)\] Example workflow:

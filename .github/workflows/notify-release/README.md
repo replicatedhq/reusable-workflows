@@ -14,7 +14,7 @@ Notify a Slack channel when a new release is published, including:
 ```yaml
 jobs:
   notify:
-    uses: replicatedhq/reusable-workflows/.github/workflows/notify-release/notify-release.yml@main
+    uses: replicatedhq/reusable-workflows/.github/workflows/notify-release.yml@main
     with:
       tag: ${{ github.ref_name }}
     secrets:
