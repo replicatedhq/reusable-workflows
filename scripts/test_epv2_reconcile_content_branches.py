@@ -174,6 +174,32 @@ class RenderSummaryTests(unittest.TestCase):
         md = rc.render_summary(counts, [], dry_run=False)
         self.assertIn("No branches to create", md)
 
+    def test_footnote_when_per_channel_sum_exceeds_deduped_total(self):
+        # 0.3.312 is live on both channels: per-channel "To create" sums to 2,
+        # but it is created once, so the deduped total is 1. Footnote must fire.
+        counts = {
+            "Stable": {"seen": 1, "selected": 1, "non_bare": 0,
+                       "empty": 0, "existed": 0, "to_create": 1},
+            "Beta": {"seen": 1, "selected": 1, "non_bare": 0,
+                     "empty": 0, "existed": 0, "to_create": 1},
+        }
+        md = rc.render_summary(counts, ["0.3.312"], dry_run=False)
+        self.assertIn("created (1)", md)
+        self.assertIn("sums to 2", md)
+        self.assertIn("counted once per channel", md)
+
+    def test_no_footnote_when_counts_agree(self):
+        # No cross-channel duplication: per-channel sum equals the deduped total,
+        # so no reconciling footnote should appear.
+        counts = {
+            "Stable": {"seen": 1, "selected": 1, "non_bare": 0,
+                       "empty": 0, "existed": 0, "to_create": 1},
+            "Beta": {"seen": 1, "selected": 1, "non_bare": 0,
+                     "empty": 0, "existed": 0, "to_create": 1},
+        }
+        md = rc.render_summary(counts, ["0.3.312", "0.4.0"], dry_run=False)
+        self.assertNotIn("sums to", md)
+
 
 class EnvIntTests(unittest.TestCase):
     def test_parses_valid_int(self):

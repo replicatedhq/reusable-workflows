@@ -147,16 +147,19 @@ jobs:
 Why `workflow_ref` is its own required input, and why it matters: the workflow
 YAML you run comes from the `uses:` ref, but the reconcile script is a separate
 file fetched at `workflow_ref`. If those two drift, you would be running one
-version of the workflow against a different version of the script. To make that
-impossible to do by accident, `workflow_ref` has no default, and the workflow
-hard-fails if you pin `uses:` to a SHA or tag while leaving `workflow_ref` at
-`main`. Pin both to the same value and you are safe.
+version of the workflow against a different version of the script. To keep you
+from doing that by accident, `workflow_ref` has no default, so you must name the
+ref every time. Pin both to the same value and you are safe.
 
-One caveat worth naming: GitHub only exposes the caller's top-level workflow ref
-to a reusable workflow, not the reusable workflow's own ref, so the workflow
-cannot auto-derive the right `workflow_ref` for you. That is why you pass it
-explicitly. The guard catches the one combination that is provably a skew (pinned
-caller, `workflow_ref` still `main`); keeping the two in sync is on you.
+One caveat worth naming: GitHub only exposes the caller's top-level trigger ref
+to a reusable workflow, not the reusable workflow's own `uses:` ref, so the
+workflow cannot auto-derive the right `workflow_ref` for you and it cannot verify
+that the value you passed matches your pin. That is why you pass it explicitly,
+and why keeping the two in sync is on you. The workflow rejects an empty
+`workflow_ref` and prints both refs (the `workflow_ref` it is fetching from and
+the caller's trigger ref) as a notice in the run, so you can eyeball a skew, but
+it will not — and cannot — hard-fail on one, because the trigger ref does not
+prove anything about how you pinned `uses:`.
 
 Start with `dry_run: true` on a manual run if you want to see the plan before it
 creates anything. The plan lands in the job summary, and every decision is logged.
@@ -203,6 +206,15 @@ branch this workflow never deletes, so leaving it in the default set piles up
 clutter fast. Add `Unstable` to `channels` only if you actually serve docs for
 Unstable releases.
 
+`release_limit` bounds how many releases per channel the workflow looks at, newest
+first — anything older than the window is skipped (and logged, never silently
+dropped). Set it higher than the number of releases still live on each channel, or
+you will silently miss coverage for older-but-still-live releases: if a customer is
+pinned to a release that has fallen outside the window, its content branch never
+gets created and the portal keeps 404-ing for them. The default of `20` fits a
+short support window; if you support releases going back further than your 20
+newest per channel, raise it to comfortably exceed your longest live-release count.
+
 ## Secrets
 
 | Name | Required | Description |
@@ -215,8 +227,9 @@ is required on your calling job.
 
 ## How it works
 
-1. **Guard against version skew** by checking `workflow_ref` against the pinned
-   caller ref, so the script and workflow can never silently diverge.
+1. **Report the script ref** by rejecting an empty `workflow_ref` and printing it
+   alongside the caller's trigger ref as a notice, so you can eyeball a skew
+   between the workflow and the script it fetches.
 2. **Checkout your repo** so branch creation targets your docs repo.
 3. **Fetch the reconcile script** from `replicatedhq/reusable-workflows` at
    `workflow_ref` (you do not vendor the script yourself).

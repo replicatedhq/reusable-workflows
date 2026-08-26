@@ -230,6 +230,19 @@ def render_summary(counts, to_create_versions, dry_run):
                      + ", ".join(f"`{v}`" for v in to_create_versions))
     else:
         lines.append("**No branches to create** -- every selected release already has a content branch.")
+    # The per-channel "To create" column counts a version once per channel it
+    # appears on, so summing it double-counts a version live on two channels. The
+    # deduped total above is the real branch count; note the gap so the columns
+    # never look like they disagree.
+    per_channel_to_create = sum(c["to_create"] for c in counts.values())
+    if per_channel_to_create > len(to_create_versions):
+        lines.append("")
+        lines.append(
+            f"> The per-channel **To create** column sums to {per_channel_to_create}, "
+            f"more than the {len(to_create_versions)} branch(es) above, because a "
+            "version live on more than one channel is counted once per channel there "
+            "but created only once."
+        )
     return "\n".join(lines) + "\n"
 
 

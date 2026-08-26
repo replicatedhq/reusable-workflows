@@ -37,9 +37,10 @@ on:
         # REQUIRED (no default) on purpose. If this defaulted to `main`, a caller
         # who pinned `uses: ...@<sha>` but forgot to set workflow_ref would run
         # the pinned workflow YAML while fetching the script from a moving `main`
-        # -- a silent version skew. Requiring it forces the caller to name the
-        # ref, and the validation step below hard-fails if it is left at `main`
-        # while the workflow itself was pinned to a SHA/tag.
+        # -- a silent version skew. Requiring it forces the caller to name the ref
+        # explicitly. GitHub does not expose a reusable workflow's own `uses:` ref
+        # to itself, so the workflow cannot VERIFY this matches the pin; the step
+        # below only rejects an empty value and echoes both refs for human review.
         description: "Ref of replicatedhq/reusable-workflows to fetch the reconcile script from. Pass the SAME ref you pin the workflow `uses:` to."
         required: true
         type: string
@@ -58,18 +59,21 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Guard against workflow_ref version skew: the workflow YAML we are running
-      # is resolved from github.workflow_sha, but the script is fetched from the
-      # `workflow_ref` input. If the workflow was pinned to a SHA/tag (i.e. the
-      # entrypoint ref is NOT a plain branch head like main) yet workflow_ref is
-      # still `main`, the caller would run pinned YAML against a moving script.
-      # Fail loudly so that can never happen unnoticed.
+      # workflow_ref names the ref this workflow fetches its reconcile script from.
+      # It should be the SAME ref the caller pinned the workflow `uses:` to; if the
+      # two drift, pinned workflow YAML runs against a script from a different ref
+      # (a silent version skew).
       #
-      # Note: github.workflow_ref describes the top-level entrypoint (the caller's
-      # workflow), not this reusable workflow, so we cannot derive our own ref
-      # from it. The reliable, honest fix is to require workflow_ref and reject
-      # the one combination that is provably a skew.
-      - name: Guard against script/workflow version skew
+      # We CANNOT verify that here. GitHub never exposes a reusable workflow's own
+      # `uses:` ref to itself. github.workflow_ref is the CALLER's top-level trigger
+      # ref -- the docs-repo branch/tag/SHA that started the run -- which is
+      # orthogonal to how the caller pinned this workflow. Branching on it is
+      # unsound in both directions: a `release: [published]` run from a tag makes
+      # github.workflow_ref end in @refs/tags/vX.Y.Z (looks "pinned" though the pin
+      # is fine), and a `uses:@shaA` with `workflow_ref: shaB` never shows up in it
+      # at all. So we do NOT infer skew from it. We reject only the empty value and
+      # emit an informational notice echoing both refs so a human can eyeball skew.
+      - name: Report script/workflow ref for skew review
         env:
           WORKFLOW_REF: ${{ inputs.workflow_ref }}
           ENTRYPOINT_REF: ${{ github.workflow_ref }}
@@ -78,24 +82,7 @@ jobs:
             echo "::error::workflow_ref is empty. Pass the same ref you pin the workflow 'uses:' to."
             exit 1
           fi
-          # The caller's entrypoint ref looks like
-          # owner/repo/.github/workflows/x.yaml@refs/heads/main  (unpinned) or
-          # owner/repo/.github/workflows/x.yaml@refs/tags/v1 / @<40-char-sha> (pinned).
-          case "${ENTRYPOINT_REF}" in
-            *"@refs/heads/"*)
-              # Caller's own workflow runs from a branch; a workflow_ref of main
-              # is a reasonable match. Nothing to enforce here.
-              ;;
-            *)
-              # Caller's workflow is pinned (tag or SHA). If workflow_ref is still
-              # the moving `main`, the script version would not match the pinned
-              # workflow. That is the skew we refuse.
-              if [ "${WORKFLOW_REF}" = "main" ]; then
-                echo "::error::workflow_ref is 'main' but the calling workflow is pinned (${ENTRYPOINT_REF}). This would run the pinned workflow against a moving script. Set workflow_ref to the SAME SHA/tag you pinned 'uses:' to."
-                exit 1
-              fi
-              ;;
-          esac
+          echo "::notice::Fetching reconcile script from workflow_ref='${WORKFLOW_REF}'. Confirm this matches the ref you pinned the workflow 'uses:' to. Caller trigger ref (github.workflow_ref, informational only, cannot prove skew): '${ENTRYPOINT_REF}'."
           echo "workflow_ref=${WORKFLOW_REF} entrypoint=${ENTRYPOINT_REF}"
 
       # The caller's repo is the docs repo we create branches in; check it out so
