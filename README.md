@@ -9,7 +9,7 @@ More information on using reusable workflows can be found [here](https://docs.gi
 | Workflow | File | Purpose |
 |----------|------|---------|
 | **Notify Release** | [`.github/workflows/notify-release.yml`](.github/workflows/notify-release.yml) ([docs](.github/workflows/notify-release/README.md)) | Post a Slack notification when a release is published, including a compare link to the previous release |
-| **EPv2 Reconcile Content Branches** | [`.github/workflows/epv2-reconcile-content-branches.yaml`](.github/workflows/epv2-reconcile-content-branches.yaml) ([docs](.github/workflows/epv2-reconcile-content-branches/README.md)) | Auto-create the per-release docs branches Enterprise Portal v2 requires so new Replicated releases stop 404-ing in the portal |
+| **EPv2 Reconcile Content Branches** | [`.github/workflows/epv2-reconcile-content-branches.yaml`](.github/workflows/epv2-reconcile-content-branches.yaml) ([docs](.github/workflows/epv2-reconcile-content-branches/README.md)) | Ensure a docs branch exists for every release across your configured channels so Enterprise Portal v2 stops 404-ing on releases |
 
 ## Usage
 1. Create a workflow yaml file under `.github/workflows`. Where possible, use the naming convention `<domain>-<action>.yaml`, e.g. `pr-enforce-labels.yaml`. \[[docs](https://docs.github.com/en/enterprise-cloud@latest/actions/using-workflows/reusing-workflows#example-reusable-workflow)\] Example workflow:
