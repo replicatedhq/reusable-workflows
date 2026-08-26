@@ -7,34 +7,56 @@ version string, e.g. ``0.3.312`` (NOT ``v0.3.312`` and NOT ``release/v0.3.312``)
 
 Verified in vandoor (replicatedhq/vandoor):
   handlers/vendor-api/replv3/enterprise_portal/content_version_pin.go
-  -> GetVersionByRepoAndBranch(repoID, versionLabel)
+  -> GetVersionByRepoAndBranch(ctx, repoID, branch)
   -> error: "version label %q matches a real git branch"
 
 The portal toggle "Require matching content for release versions" is ON, so a
 release version with no matching branch 404s in the portal. This script creates
-those branches automatically so new releases stop 404-ing.
+those branches so every release a customer could be pinned to has content.
 
-The general rule (single source of truth for the branch-name contract):
-  * ``main`` (the base branch) tracks the vendor's latest content.
-  * Each new Replicated release gets its own branch, created off the base branch.
+The model (single source of truth for what this workflow is for):
+  * ``main`` (the base branch) is the vendor's canonical working docs branch. It
+    is the base that new release branches are cut from. It does NOT track or
+    mirror any single release or channel -- with multiple channels there is no
+    one "latest release" to track, and the portal never needs one.
+  * The job is COVERAGE: ensure a content branch EXISTS for every release across
+    the configured channels. In EP v2 each customer sees the docs for the release
+    their license is on, so every release a customer could be pinned to needs a
+    branch. That is the requirement, not a single "latest".
+  * Each release branch is cut from ``main`` as it exists WHEN RECONCILE RUNS.
+    It is not a point-in-time snapshot of what shipped -- if reconcile runs after
+    ``main`` moved on, the branch captures the newer ``main``. See the README's
+    timing section; run reconcile close to release time to keep branches aligned
+    with what shipped.
   * A branch is created once and NEVER force-updated. The vendor owns it after
     that -- they can edit it if a release's content needs to diverge, and sync
-    from main themselves.
+    from ``main`` themselves.
+  * This workflow only ever CREATES branches. It never deletes. Cleaning up
+    branches for de-listed or archived releases is the vendor's job.
 
 Strategy (idempotent, bounded):
   1. Resolve the app id from the app slug (REPLICATED_APP).
-  2. For each ACTIVE channel (default Stable,Beta,Unstable), fetch the latest N
-     releases from the Replicated vendor API.
+  2. For each configured channel (default Stable,Beta -- Unstable is opt-in),
+     fetch the latest N releases from the Replicated vendor API.
   3. Keep only bare release versions (skip pre-releases like ``0.3.153-pr.106``).
   4. Skip versions whose branch already exists (never force-update).
   5. Create the remaining branches off the base branch (default ``main``).
 
-Everything the script decides is logged; nothing is silently truncated.
+Fail-loudly posture:
+  * If a channel returned releases but ZERO of them are bare versions, that is a
+    likely label-scheme mismatch (v-prefix, calver, build metadata). Emit a
+    ``::warning::`` annotation so it surfaces in the run, rather than silently
+    creating nothing.
+  * If NONE of the configured channels resolve at all, that is total
+    misconfiguration -- exit non-zero rather than reporting success.
+  * A per-channel run summary (releases seen / selected / created / skipped) is
+    written to ``$GITHUB_STEP_SUMMARY`` so a run (dry run included) is reviewable
+    at a glance.
 
 The pure decision logic (is_release_version / branch_name / select_versions /
-plan_branches) has no I/O and is unit-tested in
-test_epv2_reconcile_content_branches.py. The I/O helpers use only the Python
-standard library, so the workflow needs no pip install step.
+plan_branches / channel_zero_match_warnings / render_summary) has no I/O and is
+unit-tested in test_epv2_reconcile_content_branches.py. The I/O helpers use only
+the Python standard library, so the workflow needs no pip install step.
 """
 from __future__ import annotations
 
@@ -123,6 +145,92 @@ def plan_branches(selected, existing):
     to_create = [v for v in selected if branch_name(v) not in existing]
     to_skip = [v for v in selected if branch_name(v) in existing]
     return to_create, to_skip
+
+
+def channel_zero_match_warnings(releases_by_channel):
+    """Channels that returned releases but ZERO bare-version matches.
+
+    Returns a list of channel names. Each one is a likely label-scheme mismatch
+    (v-prefix, calver, build metadata) that would otherwise create zero branches
+    while the portal keeps 404-ing -- the caller turns each into a ``::warning::``.
+    """
+    offenders = []
+    for channel, releases in releases_by_channel.items():
+        releases = releases or []
+        if not releases:
+            continue
+        if not any(is_release_version((r.get("semver") or "").strip()) for r in releases):
+            offenders.append(channel)
+    return offenders
+
+
+def channel_counts(releases_by_channel, existing, limit):
+    """Per-channel tallies for the run summary.
+
+    Returns a dict of channel -> {seen, selected, non_bare, empty, existed,
+    to_create}, computed from the same rules the real plan uses so the summary
+    can never disagree with what the run actually did.
+
+    ``selected`` counts bare versions within the limit window (before dedupe
+    across channels). ``to_create`` and ``existed`` are that channel's selected
+    versions split by whether their branch already exists.
+    """
+    existing = set(existing)
+    counts = {}
+    for channel, releases in releases_by_channel.items():
+        releases = releases or []
+        window = releases[:limit]
+        seen = len(releases)
+        selected = non_bare = empty = existed = to_create = 0
+        for release in window:
+            semver = (release.get("semver") or "").strip()
+            if not semver:
+                empty += 1
+            elif is_release_version(semver):
+                selected += 1
+                if branch_name(semver) in existing:
+                    existed += 1
+                else:
+                    to_create += 1
+            else:
+                non_bare += 1
+        counts[channel] = {
+            "seen": seen,
+            "selected": selected,
+            "non_bare": non_bare,
+            "empty": empty,
+            "existed": existed,
+            "to_create": to_create,
+        }
+    return counts
+
+
+def render_summary(counts, to_create_versions, dry_run):
+    """Render the run summary as GitHub-flavored markdown.
+
+    Pure string builder so it is unit-testable. ``to_create_versions`` is the
+    deduped, cross-channel list actually planned for creation; the dry-run plan
+    folds into this same summary so a dry run is reviewable at a glance.
+    """
+    verb = "would create" if dry_run else "created"
+    lines = []
+    lines.append("## EPv2 content-branch reconcile" + (" (dry run)" if dry_run else ""))
+    lines.append("")
+    lines.append("| Channel | Releases seen | Bare selected | Non-bare skipped | To create | Already existed |")
+    lines.append("|---|---|---|---|---|---|")
+    for channel in sorted(counts):
+        c = counts[channel]
+        lines.append(
+            f"| {channel} | {c['seen']} | {c['selected']} | {c['non_bare']} "
+            f"| {c['to_create']} | {c['existed']} |"
+        )
+    lines.append("")
+    if to_create_versions:
+        lines.append(f"**Branches {verb} ({len(to_create_versions)}):** "
+                     + ", ".join(f"`{v}`" for v in to_create_versions))
+    else:
+        lines.append("**No branches to create** -- every selected release already has a content branch.")
+    return "\n".join(lines) + "\n"
 
 
 def _version_key(version):
@@ -223,6 +331,21 @@ def create_branch(repo, name, sha, token):
         raise
 
 
+def _warn(message):
+    """Emit a GitHub warning annotation (and to stderr for plain logs)."""
+    print(f"::warning::{message}")
+    print(f"WARNING: {message}", file=sys.stderr)
+
+
+def _write_summary(markdown):
+    """Append ``markdown`` to $GITHUB_STEP_SUMMARY if the runner set it."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(markdown)
+
+
 # --------------------------------------------------------------------------- #
 # Entry point.
 # --------------------------------------------------------------------------- #
@@ -233,14 +356,23 @@ def _env(name, default=None, required=False):
     return value
 
 
+def _env_int(name, default):
+    """Parse an int env var, failing loudly on a non-numeric value."""
+    raw = os.environ.get(name, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise SystemExit(f"{name} must be an integer, got {raw!r}")
+
+
 def main():
     app_slug = _env("REPLICATED_APP", required=True)
     vendor_token = _env("REPLICATED_API_TOKEN", required=True)
     github_token = _env("GITHUB_TOKEN", required=True)
     repo = _env("GITHUB_REPOSITORY", required=True)  # e.g. acme/acme-docs
     base_branch = _env("BASE_BRANCH", "main")
-    channels = [c.strip() for c in _env("CHANNELS", "Stable,Beta,Unstable").split(",") if c.strip()]
-    limit = int(_env("RELEASE_LIMIT", "20"))
+    channels = [c.strip() for c in _env("CHANNELS", "Stable,Beta").split(",") if c.strip()]
+    limit = _env_int("RELEASE_LIMIT", "20")
     dry_run = _env("DRY_RUN", "false").lower() in ("1", "true", "yes")
 
     print(f"Reconciling content branches for {app_slug!r} in {repo!r}")
@@ -249,11 +381,28 @@ def main():
     app_id = resolve_app_id(app_slug, vendor_token)
     channel_ids = resolve_channel_ids(app_id, channels, vendor_token)
 
+    # Total misconfiguration: none of the configured channels exist. Fail loudly
+    # rather than reporting success while creating nothing.
+    if not channel_ids:
+        raise SystemExit(
+            f"none of the configured channels {channels} resolved for app {app_slug!r}; "
+            "check the channel names against your vendor account"
+        )
+
     releases_by_channel = {}
     for name, cid in channel_ids.items():
         releases = fetch_channel_releases(app_id, cid, vendor_token, limit)
         releases_by_channel[name] = releases
         print(f"  {name}: {len(releases)} release(s) fetched")
+
+    # A channel with releases but zero bare matches is almost always a
+    # label-scheme mismatch. Surface it loudly instead of silently doing nothing.
+    for channel in channel_zero_match_warnings(releases_by_channel):
+        _warn(
+            f"channel {channel!r} returned releases but NONE are bare MAJOR.MINOR.PATCH "
+            "versions -- no branches will be created for it. Check that its release "
+            "labels are bare versions (no 'v' prefix, calver, or build metadata)."
+        )
 
     selected, skipped = select_versions(releases_by_channel, limit)
     for line in skipped:
@@ -266,6 +415,11 @@ def main():
         print(f"  exists: branch {v} already present, skipping")
 
     print(f"Plan: {len(to_create)} branch(es) to create, {len(to_skip)} already present")
+
+    # Write the run summary (dry run folds in here too) before doing any work,
+    # so it is present even if branch creation later errors.
+    counts = channel_counts(releases_by_channel, existing, limit)
+    _write_summary(render_summary(counts, to_create, dry_run))
 
     if not to_create:
         print("Nothing to do -- all release versions already have content branches.")

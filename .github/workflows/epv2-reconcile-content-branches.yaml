@@ -1,9 +1,9 @@
 # Enterprise Portal v2 links docs content to a Replicated release ONLY when a git
 # branch in the docs repo is named EXACTLY the bare release version label (e.g.
 # `0.3.312`). See .github/workflows/epv2-reconcile-content-branches/README.md for
-# the rule and the vandoor reference. This reusable workflow keeps those branches
-# in sync with the releases on the active channels so new releases stop 404-ing in
-# the portal.
+# the rule and the vandoor reference. This reusable workflow ensures a content
+# branch exists for every release across the configured channels, so releases stop
+# 404-ing in the portal. It only ever creates branches; it never deletes.
 name: EPv2 Reconcile Content Branches
 
 on:
@@ -14,17 +14,17 @@ on:
         required: true
         type: string
       channels:
-        description: "Comma-separated active channels to reconcile"
+        description: "Comma-separated channels to reconcile. Unstable is opt-in (dev releases spawn permanent branches)."
         required: false
         type: string
-        default: "Stable,Beta,Unstable"
+        default: "Stable,Beta"
       release_limit:
         description: "Max releases to consider per channel (bounds the branch set)"
         required: false
         type: number
         default: 20
       base_branch:
-        description: "Branch new content branches are created off of"
+        description: "Branch new content branches are cut from (your canonical working docs branch)"
         required: false
         type: string
         default: main
@@ -34,29 +34,77 @@ on:
         type: boolean
         default: false
       workflow_ref:
-        description: "Ref of replicatedhq/reusable-workflows to fetch the reconcile script from. Pin this to the same ref you call the workflow at."
-        required: false
+        # REQUIRED (no default) on purpose. If this defaulted to `main`, a caller
+        # who pinned `uses: ...@<sha>` but forgot to set workflow_ref would run
+        # the pinned workflow YAML while fetching the script from a moving `main`
+        # -- a silent version skew. Requiring it forces the caller to name the
+        # ref, and the validation step below hard-fails if it is left at `main`
+        # while the workflow itself was pinned to a SHA/tag.
+        description: "Ref of replicatedhq/reusable-workflows to fetch the reconcile script from. Pass the SAME ref you pin the workflow `uses:` to."
+        required: true
         type: string
-        default: main
     secrets:
       replicated_api_token:
         description: "Replicated vendor API token (read access to apps, channels, releases)"
         required: true
 
-# The caller must grant `permissions: contents: write` on the calling job so the
-# workflow can create refs in the caller's docs repo. Nothing else is needed.
 jobs:
   reconcile:
     name: Reconcile content branches
     runs-on: ubuntu-22.04
+    # Least privilege. A reusable workflow's permissions can only RESTRICT what
+    # the caller granted, so this is safe: the job needs exactly `contents: write`
+    # to create refs in the caller's docs repo, and nothing else.
+    permissions:
+      contents: write
     steps:
+      # Guard against workflow_ref version skew: the workflow YAML we are running
+      # is resolved from github.workflow_sha, but the script is fetched from the
+      # `workflow_ref` input. If the workflow was pinned to a SHA/tag (i.e. the
+      # entrypoint ref is NOT a plain branch head like main) yet workflow_ref is
+      # still `main`, the caller would run pinned YAML against a moving script.
+      # Fail loudly so that can never happen unnoticed.
+      #
+      # Note: github.workflow_ref describes the top-level entrypoint (the caller's
+      # workflow), not this reusable workflow, so we cannot derive our own ref
+      # from it. The reliable, honest fix is to require workflow_ref and reject
+      # the one combination that is provably a skew.
+      - name: Guard against script/workflow version skew
+        env:
+          WORKFLOW_REF: ${{ inputs.workflow_ref }}
+          ENTRYPOINT_REF: ${{ github.workflow_ref }}
+        run: |
+          if [ -z "${WORKFLOW_REF}" ]; then
+            echo "::error::workflow_ref is empty. Pass the same ref you pin the workflow 'uses:' to."
+            exit 1
+          fi
+          # The caller's entrypoint ref looks like
+          # owner/repo/.github/workflows/x.yaml@refs/heads/main  (unpinned) or
+          # owner/repo/.github/workflows/x.yaml@refs/tags/v1 / @<40-char-sha> (pinned).
+          case "${ENTRYPOINT_REF}" in
+            *"@refs/heads/"*)
+              # Caller's own workflow runs from a branch; a workflow_ref of main
+              # is a reasonable match. Nothing to enforce here.
+              ;;
+            *)
+              # Caller's workflow is pinned (tag or SHA). If workflow_ref is still
+              # the moving `main`, the script version would not match the pinned
+              # workflow. That is the skew we refuse.
+              if [ "${WORKFLOW_REF}" = "main" ]; then
+                echo "::error::workflow_ref is 'main' but the calling workflow is pinned (${ENTRYPOINT_REF}). This would run the pinned workflow against a moving script. Set workflow_ref to the SAME SHA/tag you pinned 'uses:' to."
+                exit 1
+              fi
+              ;;
+          esac
+          echo "workflow_ref=${WORKFLOW_REF} entrypoint=${ENTRYPOINT_REF}"
+
       # The caller's repo is the docs repo we create branches in; check it out so
       # GITHUB_REPOSITORY and the default GITHUB_TOKEN target the right repo.
       - name: Checkout caller repo
         uses: actions/checkout@v4
 
       # The caller does not have the reconcile script, so fetch it (plus its unit
-      # tests) from this workflow's own repo at the pinned ref.
+      # tests) from this workflow's own repo at the ref the caller pinned to.
       - name: Fetch reconcile script
         uses: actions/checkout@v4
         with:
