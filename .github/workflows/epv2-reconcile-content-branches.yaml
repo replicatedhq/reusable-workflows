@@ -1,0 +1,124 @@
+# Enterprise Portal v2 links docs content to a Replicated release ONLY when a git
+# branch in the docs repo is named EXACTLY the bare release version label (e.g.
+# `0.3.312`). See .github/workflows/epv2-reconcile-content-branches/README.md for
+# the rule and the vandoor reference. This reusable workflow ensures a content
+# branch exists for every release across the configured channels, so releases stop
+# 404-ing in the portal. It only ever creates branches; it never deletes.
+name: EPv2 Reconcile Content Branches
+
+on:
+  workflow_call:
+    inputs:
+      app_slug:
+        description: "Replicated app slug (or name/id) whose releases drive the content branches"
+        required: true
+        type: string
+      channels:
+        description: "Comma-separated channels to reconcile. Unstable is opt-in (dev releases spawn permanent branches)."
+        required: false
+        type: string
+        default: "Stable,Beta"
+      release_limit:
+        description: "Max releases to consider per channel (bounds the branch set)"
+        required: false
+        type: number
+        default: 20
+      base_branch:
+        description: "Branch new content branches are cut from (your canonical working docs branch)"
+        required: false
+        type: string
+        default: main
+      dry_run:
+        description: "Log the plan without creating any branches"
+        required: false
+        type: boolean
+        default: false
+      workflow_ref:
+        # REQUIRED (no default) on purpose. If this defaulted to `main`, a caller
+        # who pinned `uses: ...@<sha>` but forgot to set workflow_ref would run
+        # the pinned workflow YAML while fetching the script from a moving `main`
+        # -- a silent version skew. Requiring it forces the caller to name the ref
+        # explicitly. GitHub does not expose a reusable workflow's own `uses:` ref
+        # to itself, so the workflow cannot VERIFY this matches the pin; the step
+        # below only rejects an empty value and echoes both refs for human review.
+        description: "Ref of replicatedhq/reusable-workflows to fetch the reconcile script from. Pass the SAME ref you pin the workflow `uses:` to."
+        required: true
+        type: string
+    secrets:
+      replicated_api_token:
+        description: "Replicated vendor API token (read access to apps, channels, releases)"
+        required: true
+
+jobs:
+  reconcile:
+    name: Reconcile content branches
+    runs-on: ubuntu-22.04
+    # Least privilege. A reusable workflow's permissions can only RESTRICT what
+    # the caller granted, so this is safe: the job needs exactly `contents: write`
+    # to create refs in the caller's docs repo, and nothing else.
+    permissions:
+      contents: write
+    steps:
+      # workflow_ref names the ref this workflow fetches its reconcile script from.
+      # It should be the SAME ref the caller pinned the workflow `uses:` to; if the
+      # two drift, pinned workflow YAML runs against a script from a different ref
+      # (a silent version skew).
+      #
+      # We CANNOT verify that here. GitHub never exposes a reusable workflow's own
+      # `uses:` ref to itself. github.workflow_ref is the CALLER's top-level trigger
+      # ref -- the docs-repo branch/tag/SHA that started the run -- which is
+      # orthogonal to how the caller pinned this workflow. Branching on it is
+      # unsound in both directions: a `release: [published]` run from a tag makes
+      # github.workflow_ref end in @refs/tags/vX.Y.Z (looks "pinned" though the pin
+      # is fine), and a `uses:@shaA` with `workflow_ref: shaB` never shows up in it
+      # at all. So we do NOT infer skew from it. We reject only the empty value and
+      # emit an informational notice echoing both refs so a human can eyeball skew.
+      - name: Report script/workflow ref for skew review
+        env:
+          WORKFLOW_REF: ${{ inputs.workflow_ref }}
+          ENTRYPOINT_REF: ${{ github.workflow_ref }}
+        run: |
+          if [ -z "${WORKFLOW_REF}" ]; then
+            echo "::error::workflow_ref is empty. Pass the same ref you pin the workflow 'uses:' to."
+            exit 1
+          fi
+          echo "::notice::Fetching reconcile script from workflow_ref='${WORKFLOW_REF}'. Confirm this matches the ref you pinned the workflow 'uses:' to. Caller trigger ref (github.workflow_ref, informational only, cannot prove skew): '${ENTRYPOINT_REF}'."
+          echo "workflow_ref=${WORKFLOW_REF} entrypoint=${ENTRYPOINT_REF}"
+
+      # The caller's repo is the docs repo we create branches in; check it out so
+      # GITHUB_REPOSITORY and the default GITHUB_TOKEN target the right repo.
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+
+      # The caller does not have the reconcile script, so fetch it from this
+      # workflow's own repo at the ref the caller pinned to. The script's unit
+      # tests are NOT run here -- they cover static decision logic (the branch-name
+      # rule), not the caller's config, so running them on every invocation adds
+      # latency without proving anything about this run. They gate merges in this
+      # repo's own CI instead (.github/workflows/test-scripts.yaml). For a real
+      # preflight against your token and values, run with `dry_run: true`.
+      - name: Fetch reconcile script
+        uses: actions/checkout@v4
+        with:
+          repository: replicatedhq/reusable-workflows
+          ref: ${{ inputs.workflow_ref }}
+          path: .epv2-reusable-workflow
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Reconcile content branches
+        env:
+          REPLICATED_APP: ${{ inputs.app_slug }}
+          REPLICATED_API_TOKEN: ${{ secrets.replicated_api_token }}
+          # Provided automatically by Actions; used to create refs in the caller's repo.
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          CHANNELS: ${{ inputs.channels }}
+          RELEASE_LIMIT: ${{ inputs.release_limit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 .epv2-reusable-workflow/scripts/epv2_reconcile_content_branches.py
