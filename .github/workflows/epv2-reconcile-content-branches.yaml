@@ -90,8 +90,13 @@ jobs:
       - name: Checkout caller repo
         uses: actions/checkout@v4
 
-      # The caller does not have the reconcile script, so fetch it (plus its unit
-      # tests) from this workflow's own repo at the ref the caller pinned to.
+      # The caller does not have the reconcile script, so fetch it from this
+      # workflow's own repo at the ref the caller pinned to. The script's unit
+      # tests are NOT run here -- they cover static decision logic (the branch-name
+      # rule), not the caller's config, so running them on every invocation adds
+      # latency without proving anything about this run. They gate merges in this
+      # repo's own CI instead (.github/workflows/test-scripts.yaml). For a real
+      # preflight against your token and values, run with `dry_run: true`.
       - name: Fetch reconcile script
         uses: actions/checkout@v4
         with:
@@ -104,12 +109,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      # The branch-name rule is the EP v2 contract; prove it holds before we touch
-      # any refs. Standard-library only, so no pip install.
-      - name: Run unit tests
-        working-directory: .epv2-reusable-workflow
-        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
       - name: Reconcile content branches
         env:
