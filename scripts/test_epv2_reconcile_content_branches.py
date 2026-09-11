@@ -11,8 +11,11 @@ Covers the pure decision logic:
 
 Run: python3 -m unittest discover -s scripts -p 'test_*.py'
 """
+import json
 import os
+import tempfile
 import unittest
+from unittest import mock
 
 import epv2_reconcile_content_branches as rc
 
@@ -241,6 +244,118 @@ class PlanBranchesTests(unittest.TestCase):
         to_create, to_skip = rc.plan_branches(["0.3.312"], set())
         self.assertEqual(to_create, ["0.3.312"])
         self.assertEqual(to_skip, [])
+
+
+class RunApplyTests(unittest.TestCase):
+    def test_creates_one_branch_per_version(self):
+        created = []
+        with mock.patch.object(rc, "get_base_sha", return_value="abc1234def"), \
+                mock.patch.object(rc, "create_branch",
+                                  side_effect=lambda repo, name, sha, token: created.append(name) or True):
+            n = rc.run_apply(["0.3.166", "0.3.312"], "acme/docs", "main", "tok")
+        self.assertEqual(n, 2)
+        self.assertEqual(created, ["0.3.166", "0.3.312"])
+
+    def test_existing_ref_race_counts_as_skip_not_created(self):
+        # create_branch returns False when the ref already exists (422 race).
+        with mock.patch.object(rc, "get_base_sha", return_value="abc1234def"), \
+                mock.patch.object(rc, "create_branch", return_value=False):
+            n = rc.run_apply(["0.3.312"], "acme/docs", "main", "tok")
+        self.assertEqual(n, 0)
+
+    def test_empty_plan_does_no_work(self):
+        # No base SHA lookup, no creation -- apply must be a no-op on an empty plan.
+        with mock.patch.object(rc, "get_base_sha") as base, \
+                mock.patch.object(rc, "create_branch") as create:
+            n = rc.run_apply([], "acme/docs", "main", "tok")
+        self.assertEqual(n, 0)
+        base.assert_not_called()
+        create.assert_not_called()
+
+    def test_rejects_non_bare_version_in_handoff(self):
+        # A malformed hand-off (e.g. a v-prefixed label) must fail loudly, never
+        # create a junk ref.
+        with mock.patch.object(rc, "get_base_sha", return_value="abc1234def"), \
+                mock.patch.object(rc, "create_branch") as create:
+            with self.assertRaises(ValueError):
+                rc.run_apply(["v0.3.312"], "acme/docs", "main", "tok")
+        create.assert_not_called()
+
+
+class RunPlanTests(unittest.TestCase):
+    def _run_plan_with_fakes(self, releases_by_channel, existing, output_path):
+        """Drive run_plan with the network stubbed out; returns to_create."""
+        env = {"GITHUB_OUTPUT": output_path}
+        with mock.patch.object(rc, "resolve_app_id", return_value="app-1"), \
+                mock.patch.object(rc, "resolve_channel_ids",
+                                  return_value={name: f"cid-{name}" for name in releases_by_channel}), \
+                mock.patch.object(rc, "fetch_channel_releases",
+                                  side_effect=lambda app_id, cid, tok, limit: releases_by_channel[
+                                      cid.replace("cid-", "")]), \
+                mock.patch.object(rc, "list_existing_branches", return_value=set(existing)), \
+                mock.patch.dict(os.environ, env, clear=False):
+            return rc.run_plan(
+                app_slug="acme", vendor_token="v", github_token="g", repo="acme/docs",
+                base_branch="main", channels=list(releases_by_channel), limit=20, dry_run=False,
+            )
+
+    def test_dedupes_across_channels_and_skips_existing(self):
+        by_channel = {
+            "Stable": [{"semver": "0.3.166"}, {"semver": "0.3.312"}],
+            "Beta": [{"semver": "0.3.312"}],  # dup across channels -> planned once
+        }
+        with tempfile.NamedTemporaryFile("w+", delete=False) as fh:
+            out = fh.name
+        try:
+            to_create = self._run_plan_with_fakes(by_channel, existing={"0.3.166"}, output_path=out)
+            self.assertEqual(to_create, ["0.3.312"])  # 0.3.166 exists, 0.3.312 deduped
+            with open(out) as f:
+                emitted = f.read()
+        finally:
+            os.unlink(out)
+        # Plan hands the list to the apply job as JSON on the to_create output.
+        self.assertIn("to_create=", emitted)
+        line = next(l for l in emitted.splitlines() if l.startswith("to_create="))
+        self.assertEqual(json.loads(line[len("to_create="):]), ["0.3.312"])
+
+    def test_fails_loudly_when_no_channel_resolves(self):
+        with mock.patch.object(rc, "resolve_app_id", return_value="app-1"), \
+                mock.patch.object(rc, "resolve_channel_ids", return_value={}):
+            with self.assertRaises(SystemExit):
+                rc.run_plan("acme", "v", "g", "acme/docs", "main", ["Nope"], 20, False)
+
+
+class MainDispatchTests(unittest.TestCase):
+    def test_apply_mode_reads_to_create_env_and_applies(self):
+        applied = {}
+        env = {
+            "MODE": "apply",
+            "GITHUB_TOKEN": "g",
+            "GITHUB_REPOSITORY": "acme/docs",
+            "BASE_BRANCH": "main",
+            "TO_CREATE": json.dumps(["0.3.312", "0.4.0"]),
+        }
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch.object(rc, "run_apply", return_value=2) as apply:
+            rc.main()
+        apply.assert_called_once()
+        # First positional arg is the parsed to_create list.
+        self.assertEqual(apply.call_args.args[0], ["0.3.312", "0.4.0"])
+
+    def test_apply_mode_defaults_empty_plan(self):
+        # No TO_CREATE in the env -> apply gets an empty plan, not a crash.
+        env = {"MODE": "apply", "GITHUB_TOKEN": "g", "GITHUB_REPOSITORY": "acme/docs",
+               "TO_CREATE": ""}
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch.object(rc, "run_apply", return_value=0) as apply:
+            os.environ.pop("TO_CREATE")  # simulate the var being absent
+            rc.main()
+        self.assertEqual(apply.call_args.args[0], [])
+
+    def test_rejects_unknown_mode(self):
+        with mock.patch.dict(os.environ, {"MODE": "bogus"}, clear=False):
+            with self.assertRaises(SystemExit):
+                rc.main()
 
 
 if __name__ == "__main__":

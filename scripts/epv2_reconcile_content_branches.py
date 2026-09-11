@@ -359,6 +359,20 @@ def _write_summary(markdown):
         fh.write(markdown)
 
 
+def _write_output(name, value):
+    """Append ``name=value`` to $GITHUB_OUTPUT if the runner set it.
+
+    Mirrors _write_summary. This is how the ``plan`` job hands the branch list to
+    the ``apply`` job: plan writes ``to_create=<json>`` here, the workflow maps it
+    to a job output, and apply reads it back from the TO_CREATE env var.
+    """
+    path = os.environ.get("GITHUB_OUTPUT")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(f"{name}={value}\n")
+
+
 # --------------------------------------------------------------------------- #
 # Entry point.
 # --------------------------------------------------------------------------- #
@@ -378,17 +392,17 @@ def _env_int(name, default):
         raise SystemExit(f"{name} must be an integer, got {raw!r}")
 
 
-def main():
-    app_slug = _env("REPLICATED_APP", required=True)
-    vendor_token = _env("REPLICATED_API_TOKEN", required=True)
-    github_token = _env("GITHUB_TOKEN", required=True)
-    repo = _env("GITHUB_REPOSITORY", required=True)  # e.g. acme/acme-docs
-    base_branch = _env("BASE_BRANCH", "main")
-    channels = [c.strip() for c in _env("CHANNELS", "Stable,Beta").split(",") if c.strip()]
-    limit = _env_int("RELEASE_LIMIT", "20")
-    dry_run = _env("DRY_RUN", "false").lower() in ("1", "true", "yes")
+def run_plan(app_slug, vendor_token, github_token, repo, base_branch, channels, limit, dry_run):
+    """Read-only planning phase: decide which content branches are missing.
 
-    print(f"Reconciling content branches for {app_slug!r} in {repo!r}")
+    Resolves the app/channels, fetches releases, warns on label-scheme mismatches,
+    selects bare versions (deduped across channels), and diffs against the existing
+    branches. Writes the run summary and emits ``to_create`` as a job output so the
+    apply phase can consume it. Creates NOTHING -- needs only read access.
+
+    Returns the deduped, sorted list of versions whose branches must be created.
+    """
+    print(f"Planning content branches for {app_slug!r} in {repo!r}")
     print(f"  channels={channels} limit={limit} base={base_branch} dry_run={dry_run}")
 
     app_id = resolve_app_id(app_slug, vendor_token)
@@ -417,6 +431,9 @@ def main():
             "labels are bare versions (no 'v' prefix, calver, or build metadata)."
         )
 
+    # Cross-channel dedup lives here: select_versions folds every channel into a
+    # single set, so a version live on two channels is planned exactly once. This
+    # is why planning stays in one process/job -- splitting channels would break it.
     selected, skipped = select_versions(releases_by_channel, limit)
     for line in skipped:
         print(f"  skip: {line}")
@@ -429,28 +446,95 @@ def main():
 
     print(f"Plan: {len(to_create)} branch(es) to create, {len(to_skip)} already present")
 
-    # Write the run summary (dry run folds in here too) before doing any work,
-    # so it is present even if branch creation later errors.
+    # Write the run summary (dry run folds in here too) before any apply work, so
+    # it is present even if branch creation later errors.
     counts = channel_counts(releases_by_channel, existing, limit)
     _write_summary(render_summary(counts, to_create, dry_run))
 
+    # Hand the plan to the apply job. json so the apply side round-trips it back
+    # into a list; an empty plan serializes to "[]", which the workflow uses to
+    # skip the apply job entirely.
+    _write_output("to_create", json.dumps(to_create))
+
     if not to_create:
         print("Nothing to do -- all release versions already have content branches.")
+
+    return to_create
+
+
+def run_apply(to_create, repo, base_branch, github_token):
+    """Mutating apply phase: create the planned content branches.
+
+    Takes the version list the plan produced and creates a branch for each off
+    ``base_branch`` as it exists now. Every version is re-validated through
+    branch_name() so a malformed hand-off fails loudly rather than creating junk
+    refs. Idempotent: an existing ref (race) is treated as success. Needs only
+    write access -- no vendor API/token here. Returns the count actually created.
+    """
+    if not to_create:
+        print("Nothing to apply -- no branches were planned.")
+        return 0
+
+    base_sha = get_base_sha(repo, base_branch, github_token)
+    created = 0
+    for v in to_create:
+        name = branch_name(v)  # rejects any non-bare version that slipped through
+        if create_branch(repo, name, base_sha, github_token):
+            print(f"  created branch {name} at {base_sha[:8]} (off {base_branch})")
+            created += 1
+    print(f"Done: created {created} branch(es).")
+
+    # Record the real outcome. The plan already wrote the table/plan summary; this
+    # appends what apply actually did, so a two-job run's summary tells the truth
+    # even though the "to create" numbers were written before creation happened.
+    _write_summary(f"\n**Apply:** created {created} of {len(to_create)} planned branch(es).\n")
+    return created
+
+
+def main():
+    """Dispatch on MODE: ``plan``, ``apply``, or ``reconcile`` (default).
+
+    The reusable workflow runs the two phases as separate jobs (MODE=plan then
+    MODE=apply, with the plan handed over as a job output). MODE=reconcile is the
+    default single-process path -- it runs the plan and, unless dry_run, applies it
+    in one go, preserving the original standalone/local behavior.
+    """
+    mode = _env("MODE", "reconcile").lower()
+
+    if mode == "apply":
+        github_token = _env("GITHUB_TOKEN", required=True)
+        repo = _env("GITHUB_REPOSITORY", required=True)  # e.g. acme/acme-docs
+        base_branch = _env("BASE_BRANCH", "main")
+        to_create = json.loads(_env("TO_CREATE", "[]"))
+        run_apply(to_create, repo, base_branch, github_token)
         return
 
+    if mode not in ("plan", "reconcile"):
+        raise SystemExit(f"MODE must be one of plan, apply, reconcile; got {mode!r}")
+
+    app_slug = _env("REPLICATED_APP", required=True)
+    vendor_token = _env("REPLICATED_API_TOKEN", required=True)
+    github_token = _env("GITHUB_TOKEN", required=True)
+    repo = _env("GITHUB_REPOSITORY", required=True)  # e.g. acme/acme-docs
+    base_branch = _env("BASE_BRANCH", "main")
+    channels = [c.strip() for c in _env("CHANNELS", "Stable,Beta").split(",") if c.strip()]
+    limit = _env_int("RELEASE_LIMIT", "20")
+    dry_run = _env("DRY_RUN", "false").lower() in ("1", "true", "yes")
+
+    to_create = run_plan(
+        app_slug, vendor_token, github_token, repo, base_branch, channels, limit, dry_run
+    )
+
+    if mode == "plan":
+        return
+
+    # reconcile: apply in the same process, unless this is a dry run.
     if dry_run:
         for v in to_create:
             print(f"  DRY-RUN would create branch {branch_name(v)} off {base_branch}")
         return
 
-    base_sha = get_base_sha(repo, base_branch, github_token)
-    created = 0
-    for v in to_create:
-        name = branch_name(v)
-        if create_branch(repo, name, base_sha, github_token):
-            print(f"  created branch {name} at {base_sha[:8]} (off {base_branch})")
-            created += 1
-    print(f"Done: created {created} branch(es).")
+    run_apply(to_create, repo, base_branch, github_token)
 
 
 if __name__ == "__main__":

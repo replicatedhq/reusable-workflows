@@ -49,15 +49,28 @@ on:
         description: "Replicated vendor API token (read access to apps, channels, releases)"
         required: true
 
+# Two phases, one per job:
+#   plan  -- read releases, compute the missing branches, hand the list to apply.
+#            Read-only: `contents: read` and the vendor token, nothing that mutates.
+#   apply -- create exactly the branches plan named. Write-only against GitHub:
+#            `contents: write` and the GITHUB_TOKEN, no vendor token.
+# apply `needs: plan` and is skipped entirely on a dry run or when nothing is
+# missing, so a no-op run never provisions a second runner. Cross-channel dedup
+# happens wholly inside plan (a single set across channels), so splitting the
+# phases across jobs keeps that guarantee intact.
 jobs:
-  reconcile:
-    name: Reconcile content branches
+  plan:
+    name: Plan content branches
     runs-on: ubuntu-22.04
     # Least privilege. A reusable workflow's permissions can only RESTRICT what
-    # the caller granted, so this is safe: the job needs exactly `contents: write`
-    # to create refs in the caller's docs repo, and nothing else.
+    # the caller granted, so this is safe: planning only READS releases and lists
+    # existing branches, so it needs no more than `contents: read`.
     permissions:
-      contents: write
+      contents: read
+    # Hand the computed branch list to the apply job. Empty plan -> "[]", which
+    # apply's `if:` uses to skip itself.
+    outputs:
+      to_create: ${{ steps.plan.outputs.to_create }}
     steps:
       # workflow_ref names the ref this workflow fetches its reconcile script from.
       # It should be the SAME ref the caller pinned the workflow `uses:` to; if the
@@ -110,15 +123,63 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Reconcile content branches
+      - name: Plan content branches
+        id: plan
         env:
+          MODE: plan
           REPLICATED_APP: ${{ inputs.app_slug }}
           REPLICATED_API_TOKEN: ${{ secrets.replicated_api_token }}
-          # Provided automatically by Actions; used to create refs in the caller's repo.
+          # Provided automatically by Actions; used here only to READ the caller's
+          # existing branches so the plan can skip ones that already exist.
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           BASE_BRANCH: ${{ inputs.base_branch }}
           CHANNELS: ${{ inputs.channels }}
           RELEASE_LIMIT: ${{ inputs.release_limit }}
           DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 .epv2-reusable-workflow/scripts/epv2_reconcile_content_branches.py
+
+  apply:
+    name: Apply content branches
+    needs: plan
+    # Skip apply on a dry run or when the plan is empty ("[]"), so a no-op run
+    # never spins up this second runner. An empty string means plan failed before
+    # emitting the output; `needs: plan` already blocks apply in that case, and the
+    # guard here is belt-and-suspenders.
+    if: ${{ inputs.dry_run == false && needs.plan.outputs.to_create != '' && needs.plan.outputs.to_create != '[]' }}
+    runs-on: ubuntu-22.04
+    # Least privilege. Apply is the only phase that mutates the repo: it needs
+    # exactly `contents: write` to create refs, and no vendor token at all.
+    permissions:
+      contents: write
+    steps:
+      # The caller's repo is the docs repo we create branches in; check it out so
+      # GITHUB_REPOSITORY and the default GITHUB_TOKEN target the right repo.
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+
+      # Fetch the reconcile script at the SAME ref the plan job used. The ref-skew
+      # guard already ran (and passed) in plan, so it is not repeated here.
+      - name: Fetch reconcile script
+        uses: actions/checkout@v4
+        with:
+          repository: replicatedhq/reusable-workflows
+          ref: ${{ inputs.workflow_ref }}
+          path: .epv2-reusable-workflow
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply content branches
+        env:
+          MODE: apply
+          # Provided automatically by Actions; used to create refs in the caller's repo.
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          # The deduped branch list the plan job computed and handed over.
+          TO_CREATE: ${{ needs.plan.outputs.to_create }}
         run: python3 .epv2-reusable-workflow/scripts/epv2_reconcile_content_branches.py
