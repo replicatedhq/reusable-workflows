@@ -11,10 +11,12 @@ Covers the pure decision logic:
 
 Run: python3 -m unittest discover -s scripts -p 'test_*.py'
 """
+import io
 import json
 import os
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 
 import epv2_reconcile_content_branches as rc
@@ -356,6 +358,58 @@ class MainDispatchTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"MODE": "bogus"}, clear=False):
             with self.assertRaises(SystemExit):
                 rc.main()
+
+
+class CreateBranchTests(unittest.TestCase):
+    def test_success_returns_true(self):
+        with mock.patch.object(rc, "_http_json", return_value={}):
+            self.assertTrue(rc.create_branch("acme/docs", "0.3.312", "sha", "t"))
+
+    def test_reference_already_exists_race_returns_false(self):
+        err = rc.ApiError(422, '{"message":"Reference already exists"}', "url")
+        with mock.patch.object(rc, "_http_json", side_effect=err):
+            self.assertFalse(rc.create_branch("acme/docs", "0.3.312", "sha", "t"))
+
+    def test_other_422_is_reraised_not_swallowed(self):
+        # A bad base SHA also returns 422 ("Object does not exist"). It must NOT be
+        # reported as "already existed" -- otherwise a branch silently never gets
+        # created and the portal keeps 404-ing.
+        err = rc.ApiError(422, '{"message":"Object does not exist"}', "url")
+        with mock.patch.object(rc, "_http_json", side_effect=err):
+            with self.assertRaises(rc.ApiError):
+                rc.create_branch("acme/docs", "0.3.312", "badsha", "t")
+
+
+class GetBaseShaTests(unittest.TestCase):
+    def test_returns_sha(self):
+        with mock.patch.object(rc, "_http_json", return_value={"object": {"sha": "deadbeef"}}):
+            self.assertEqual(rc.get_base_sha("acme/docs", "main", "t"), "deadbeef")
+
+    def test_missing_base_branch_raises_clear_systemexit(self):
+        err = rc.ApiError(404, '{"message":"Not Found"}', "url")
+        with mock.patch.object(rc, "_http_json", side_effect=err):
+            with self.assertRaises(SystemExit) as ctx:
+                rc.get_base_sha("acme/docs", "master", "t")
+        self.assertIn("master", str(ctx.exception))  # names the missing branch
+
+    def test_non_404_error_propagates(self):
+        err = rc.ApiError(500, "boom", "url")
+        with mock.patch.object(rc, "_http_json", side_effect=err):
+            with self.assertRaises(rc.ApiError):
+                rc.get_base_sha("acme/docs", "main", "t")
+
+
+class HttpJsonErrorTests(unittest.TestCase):
+    def test_httperror_becomes_apierror_carrying_body(self):
+        # A stalled/failed call must surface the API's message, not just a status.
+        http_err = urllib.error.HTTPError(
+            "https://api/x", 403, "Forbidden", {}, io.BytesIO(b'{"message":"bad token"}')
+        )
+        with mock.patch.object(rc.urllib.request, "urlopen", side_effect=http_err):
+            with self.assertRaises(rc.ApiError) as ctx:
+                rc._http_json("https://api/x", {"User-Agent": "t"})
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertIn("bad token", ctx.exception.body)
 
 
 if __name__ == "__main__":

@@ -29,18 +29,17 @@ It only ever creates branches. It never force-updates and it never deletes.
 ## Quick start
 
 Add a workflow to your docs repo, for example
-`.github/workflows/reconcile-content-branches.yml`. This example fires when a GitHub
-release is published, with a cron fallback so nothing slips through and a manual dry-run
-option:
+`.github/workflows/reconcile-content-branches.yml`. This example runs on a schedule (the
+primary trigger) with a manual dry-run option:
 
 ```yaml
 name: Reconcile EPv2 content branches
 
 on:
-  release:
-    types: [published]
   schedule:
-    # Fallback so nothing slips through if a release did not trigger the workflow.
+    # Primary trigger. This workflow lives in your docs repo, but Replicated
+    # releases are published in your app repo, so a `release` event here never
+    # fires for them -- poll the vendor API for new releases on a schedule instead.
     - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
@@ -163,12 +162,12 @@ reconcile ran, the new branch captures the newer `main`, not the docs that were 
 release time.
 
 So the closer reconcile runs to the release, the closer the branch content tracks what
-actually shipped. That is why the [quick start](#quick-start) fires on
-`release: [published]` with a cron fallback rather than relying on a timer alone. The
-sibling [`notify-release`](../notify-release/README.md) workflow fires on the same event,
-so you can model your caller on it. If you promote Replicated releases from a workflow, a
-step right after the promotion works too. After that first cut, the branch is yours to
-customize.
+actually shipped. This workflow lives in your docs repo while releases are published and
+promoted in your app repo, so a `release` event here never fires for them — the
+[quick start](#quick-start) cron schedule is the primary trigger. For the tightest
+alignment, invoke it via `workflow_dispatch` from the same workflow that promotes your
+Replicated release, right after the promotion step. After that first cut, the branch is
+yours to customize.
 
 ### Version labels must be bare versions
 

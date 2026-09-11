@@ -67,12 +67,18 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any, Iterable
 
 VENDOR_API_BASE = "https://api.replicated.com/vendor/v3"
 GITHUB_API_BASE = "https://api.github.com"
 
 # Both APIs reject urllib's default agent (WAF 403 / GitHub requires a UA).
 USER_AGENT = "replicatedhq-reusable-workflows-epv2-reconcile-content-branches"
+
+# No single API call should be able to hang the whole job. urllib's default is no
+# timeout at all, so a stalled vendor/GitHub call would block until the job's own
+# timeout fires.
+HTTP_TIMEOUT = 30  # seconds
 
 # A bare release version: MAJOR.MINOR.PATCH, digits and dots only.
 # Deliberately rejects a leading "v", any "-" pre-release suffix (e.g. PR
@@ -101,7 +107,9 @@ def branch_name(version: str) -> str:
     return name
 
 
-def select_versions(releases_by_channel, limit):
+def select_versions(
+    releases_by_channel: dict[str, list[dict]], limit: int
+) -> tuple[list[str], list[str]]:
     """Choose which release versions need a content branch.
 
     Args:
@@ -135,7 +143,9 @@ def select_versions(releases_by_channel, limit):
     return sorted(selected, key=_version_key), skipped
 
 
-def plan_branches(selected, existing):
+def plan_branches(
+    selected: list[str], existing: Iterable[str]
+) -> tuple[list[str], list[str]]:
     """Split desired versions into (to_create, to_skip_existing).
 
     Idempotency lives here: any version whose branch already exists is skipped,
@@ -147,7 +157,7 @@ def plan_branches(selected, existing):
     return to_create, to_skip
 
 
-def channel_zero_match_warnings(releases_by_channel):
+def channel_zero_match_warnings(releases_by_channel: dict[str, list[dict]]) -> list[str]:
     """Channels that returned releases but ZERO bare-version matches.
 
     Returns a list of channel names. Each one is a likely label-scheme mismatch
@@ -164,7 +174,9 @@ def channel_zero_match_warnings(releases_by_channel):
     return offenders
 
 
-def channel_counts(releases_by_channel, existing, limit):
+def channel_counts(
+    releases_by_channel: dict[str, list[dict]], existing: Iterable[str], limit: int
+) -> dict[str, dict[str, int]]:
     """Per-channel tallies for the run summary.
 
     Returns a dict of channel -> {seen, selected, non_bare, empty, existed,
@@ -205,7 +217,9 @@ def channel_counts(releases_by_channel, existing, limit):
     return counts
 
 
-def render_summary(counts, to_create_versions, dry_run):
+def render_summary(
+    counts: dict[str, dict[str, int]], to_create_versions: list[str], dry_run: bool
+) -> str:
     """Render the run summary as GitHub-flavored markdown.
 
     Pure string builder so it is unit-testable. ``to_create_versions`` is the
@@ -246,7 +260,7 @@ def render_summary(counts, to_create_versions, dry_run):
     return "\n".join(lines) + "\n"
 
 
-def _version_key(version):
+def _version_key(version: str) -> tuple[int, ...]:
     """Sort key so versions order numerically, not lexically."""
     return tuple(int(p) for p in version.split("."))
 
@@ -254,15 +268,47 @@ def _version_key(version):
 # --------------------------------------------------------------------------- #
 # I/O helpers (standard library only).
 # --------------------------------------------------------------------------- #
-def _http_json(url, headers, method="GET", body=None):
+class ApiError(Exception):
+    """An HTTP error from the vendor or GitHub API, carrying the response body.
+
+    urllib's HTTPError drops the response body unless you read it, leaving only a
+    status code in the log. _http_json reads it and re-raises this instead, so:
+      * callers can branch on the body (e.g. tell GitHub's benign "Reference
+        already exists" 422 from a real one), and
+      * an uncaught error prints the API's own message, not a bare status.
+    """
+
+    def __init__(self, status: int, body: str, url: str):
+        self.status = status
+        self.body = body
+        self.url = url
+        super().__init__(f"HTTP {status} from {url}: {body}")
+
+
+def _http_json(
+    url: str,
+    headers: dict[str, str],
+    method: str = "GET",
+    body: dict | None = None,
+    timeout: int = HTTP_TIMEOUT,
+) -> Any:
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req) as resp:
-        raw = resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as err:
+        # Read the API's error body once so the message survives into the log /
+        # the caller, then re-raise it in a form that carries that body.
+        try:
+            detail = err.read().decode("utf-8", "replace")
+        except Exception:  # pragma: no cover - body already consumed/unavailable
+            detail = ""
+        raise ApiError(err.code, detail, url) from err
     return json.loads(raw) if raw else {}
 
 
-def _vendor_headers(token):
+def _vendor_headers(token: str) -> dict[str, str]:
     return {
         "Authorization": token,
         "Accept": "application/json",
@@ -271,7 +317,7 @@ def _vendor_headers(token):
     }
 
 
-def resolve_app_id(app_slug, token):
+def resolve_app_id(app_slug: str, token: str) -> str:
     data = _http_json(f"{VENDOR_API_BASE}/apps", _vendor_headers(token))
     for app in data.get("apps", []):
         if app.get("slug") == app_slug or app.get("name") == app_slug or app.get("id") == app_slug:
@@ -279,7 +325,9 @@ def resolve_app_id(app_slug, token):
     raise SystemExit(f"app slug {app_slug!r} not found in vendor account")
 
 
-def resolve_channel_ids(app_id, channel_names, token):
+def resolve_channel_ids(
+    app_id: str, channel_names: Iterable[str], token: str
+) -> dict[str, str]:
     """Return {name: id} for the requested channels; log any that are missing."""
     data = _http_json(f"{VENDOR_API_BASE}/app/{app_id}/channels", _vendor_headers(token))
     by_name = {c.get("name"): c.get("id") for c in data.get("channels", [])}
@@ -292,22 +340,25 @@ def resolve_channel_ids(app_id, channel_names, token):
     return resolved
 
 
-def fetch_channel_releases(app_id, channel_id, token, limit):
+def fetch_channel_releases(app_id: str, channel_id: str, token: str, limit: int) -> list[dict]:
     url = f"{VENDOR_API_BASE}/app/{app_id}/channel/{channel_id}/releases?pageSize={limit}"
     data = _http_json(url, _vendor_headers(token))
     return data.get("releases") or []
 
 
-def _github_headers(token):
+def _github_headers(token: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
+        # urllib defaults a request WITH a body to application/x-www-form-urlencoded;
+        # our POST bodies are JSON, so set it explicitly or GitHub may reject them.
+        "Content-Type": "application/json",
         "User-Agent": USER_AGENT,
     }
 
 
-def list_existing_branches(repo, token):
+def list_existing_branches(repo: str, token: str) -> set[str]:
     """Return the set of branch names in ``repo`` (owner/name), paginating."""
     branches = set()
     page = 1
@@ -323,13 +374,21 @@ def list_existing_branches(repo, token):
     return branches
 
 
-def get_base_sha(repo, base_branch, token):
+def get_base_sha(repo: str, base_branch: str, token: str) -> str:
     url = f"{GITHUB_API_BASE}/repos/{repo}/git/ref/heads/{urllib.parse.quote(base_branch)}"
-    data = _http_json(url, _github_headers(token))
+    try:
+        data = _http_json(url, _github_headers(token))
+    except ApiError as err:
+        if err.status == 404:
+            raise SystemExit(
+                f"base branch {base_branch!r} not found in {repo!r}; set base_branch to "
+                "an existing branch (usually your default, 'main')"
+            )
+        raise
     return data["object"]["sha"]
 
 
-def create_branch(repo, name, sha, token):
+def create_branch(repo: str, name: str, sha: str, token: str) -> bool:
     """Create refs/heads/<name> at <sha>. Returns True if created, False if it
     already existed (treated as success -- idempotent)."""
     url = f"{GITHUB_API_BASE}/repos/{repo}/git/refs"
@@ -337,20 +396,25 @@ def create_branch(repo, name, sha, token):
     try:
         _http_json(url, _github_headers(token), method="POST", body=body)
         return True
-    except urllib.error.HTTPError as err:
-        if err.code == 422:  # Reference already exists -- lost a race; fine.
+    except ApiError as err:
+        # GitHub returns 422 for several distinct failures -- a bad base SHA
+        # ("Object does not exist"), an invalid ref name, AND the benign
+        # "Reference already exists" race. Only the last is safe to swallow;
+        # anything else is a real error that must surface, or a branch silently
+        # never gets created and the portal keeps 404-ing.
+        if err.status == 422 and "Reference already exists" in err.body:
             print(f"  {name}: already exists (race), skipped", file=sys.stderr)
             return False
         raise
 
 
-def _warn(message):
+def _warn(message: str) -> None:
     """Emit a GitHub warning annotation (and to stderr for plain logs)."""
     print(f"::warning::{message}")
     print(f"WARNING: {message}", file=sys.stderr)
 
 
-def _write_summary(markdown):
+def _write_summary(markdown: str) -> None:
     """Append ``markdown`` to $GITHUB_STEP_SUMMARY if the runner set it."""
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not path:
@@ -359,7 +423,7 @@ def _write_summary(markdown):
         fh.write(markdown)
 
 
-def _write_output(name, value):
+def _write_output(name: str, value: str) -> None:
     """Append ``name=value`` to $GITHUB_OUTPUT if the runner set it.
 
     Mirrors _write_summary. This is how the ``plan`` job hands the branch list to
@@ -376,14 +440,14 @@ def _write_output(name, value):
 # --------------------------------------------------------------------------- #
 # Entry point.
 # --------------------------------------------------------------------------- #
-def _env(name, default=None, required=False):
+def _env(name: str, default: str | None = None, required: bool = False) -> str | None:
     value = os.environ.get(name, default)
     if required and not value:
         raise SystemExit(f"missing required environment variable {name}")
     return value
 
 
-def _env_int(name, default):
+def _env_int(name: str, default: str) -> int:
     """Parse an int env var, failing loudly on a non-numeric value."""
     raw = os.environ.get(name, default)
     try:
@@ -392,7 +456,16 @@ def _env_int(name, default):
         raise SystemExit(f"{name} must be an integer, got {raw!r}")
 
 
-def run_plan(app_slug, vendor_token, github_token, repo, base_branch, channels, limit, dry_run):
+def run_plan(
+    app_slug: str,
+    vendor_token: str,
+    github_token: str,
+    repo: str,
+    base_branch: str,
+    channels: list[str],
+    limit: int,
+    dry_run: bool,
+) -> list[str]:
     """Read-only planning phase: decide which content branches are missing.
 
     Resolves the app/channels, fetches releases, warns on label-scheme mismatches,
@@ -462,7 +535,9 @@ def run_plan(app_slug, vendor_token, github_token, repo, base_branch, channels, 
     return to_create
 
 
-def run_apply(to_create, repo, base_branch, github_token):
+def run_apply(
+    to_create: list[str], repo: str, base_branch: str, github_token: str
+) -> int:
     """Mutating apply phase: create the planned content branches.
 
     Takes the version list the plan produced and creates a branch for each off
@@ -491,7 +566,7 @@ def run_apply(to_create, repo, base_branch, github_token):
     return created
 
 
-def main():
+def main() -> None:
     """Dispatch on MODE: ``plan``, ``apply``, or ``reconcile`` (default).
 
     The reusable workflow runs the two phases as separate jobs (MODE=plan then
@@ -538,4 +613,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ApiError as err:
+        # Surface the API's own message (status + body) as a GitHub error
+        # annotation instead of dumping a urllib traceback.
+        print(f"::error::{err}")
+        raise SystemExit(1)
