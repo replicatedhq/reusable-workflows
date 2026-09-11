@@ -1,0 +1,34 @@
+# CI for the Python scripts backing the reusable workflows in this repo. Runs the
+# stdlib unit tests (standard library only, no pip install) on any change under
+# scripts/. This is where the reconcile script's decision logic (the EP v2
+# branch-name contract) is proven -- it is intentionally NOT run inside the
+# reusable workflow itself, so consumers don't pay for it on every invocation.
+name: Test Scripts
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - ".github/workflows/test-scripts.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/**"
+      - ".github/workflows/test-scripts.yaml"
+
+jobs:
+  unittest:
+    name: Python unit tests
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
