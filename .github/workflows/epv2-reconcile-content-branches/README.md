@@ -207,23 +207,29 @@ the branches for retired releases yourself.
 
 ## Run summary
 
-Every run writes a summary to the job's GitHub step summary: per channel, how many releases
-it saw, how many were selected as bare versions, how many were skipped as non-bare, how
-many branches it created, and how many already existed. A dry run folds its plan into that
-same summary, so you can review a dry run at a glance without reading the raw log.
+The **plan** job writes a summary to the run's GitHub step summary: per channel, how many
+releases it saw, how many were selected as bare versions, how many were skipped as non-bare,
+how many branches are to be created, and how many already existed. A dry run folds its plan
+into that same summary, so you can review a dry run at a glance without reading the raw log.
+The **apply** job then appends a "created X of N planned branch(es)" line, so the summary
+records what was actually created, not just what was planned.
 
 ## How it works
 
-1. **Report the script ref** by rejecting an empty `workflow_ref` and printing it alongside
-   the caller's trigger ref as a notice, so you can eyeball a skew between the workflow and
-   the script it fetches.
-2. **Checkout your repo** so branch creation targets your docs repo.
-3. **Fetch the reconcile script** from `replicatedhq/reusable-workflows` at `workflow_ref`
-   (you do not vendor the script yourself).
-4. **Run the unit tests** that prove the branch-name rule, before touching any refs.
-5. **Reconcile** by reading your releases, planning the missing branches, and creating them
-   off `base_branch`. Existing branches are left untouched, and the run summary lands in the
-   job summary.
+The workflow runs in two jobs, a plan phase and an apply phase:
 
-The reconcile script uses only the Python standard library, so there is no `pip install`
-step and nothing extra to trust.
+1. **Plan** (`contents: read`) first rejects an empty `workflow_ref` and prints it alongside
+   the caller's trigger ref as a notice, so you can eyeball a skew between the workflow and
+   the script it fetches. It then checks out your repo, fetches the reconcile script from
+   `replicatedhq/reusable-workflows` at `workflow_ref` (you do not vendor it yourself), reads
+   your releases, and computes the missing branches. It creates nothing — it only needs read
+   access — and hands the branch list to apply.
+2. **Apply** (`contents: write`) creates exactly the branches the plan named, cut from
+   `base_branch`. Existing branches are left untouched. It is **skipped** on a dry run or
+   when nothing is missing, so a no-op run never spins up a second runner, and it needs no
+   vendor token — only the calling repo's `GITHUB_TOKEN`.
+
+The plan/apply split keeps each phase least-privileged: only apply can write to your repo.
+The reconcile script runs its unit tests in this repo's own CI, not on your invocation, so
+you never pay for them per run. It uses only the Python standard library, so there is no
+`pip install` step and nothing extra to trust.
