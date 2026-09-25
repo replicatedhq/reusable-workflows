@@ -1,12 +1,22 @@
 # EPv2 Reconcile Content Branches
 
-A reusable GitHub Actions workflow that auto-creates the per-release content branches
-Enterprise Portal v2 (EPv2) needs, so new Replicated releases stop 404-ing in your portal.
+A reusable GitHub Actions workflow that creates a content branch for every Replicated
+release on the channels you choose, so each release resolves to a branch named for it.
 
-If you run EPv2 with the "Require matching content for release versions" toggle on, you
-know the drill: every release needs a matching branch in your docs repo, and
-hand-creating them is easy to forget. Drop this workflow into your docs repo and it keeps
-up for you.
+## Is this the right tool for you?
+
+Enterprise Portal v2 resolves a release to content in three ways, and this workflow is one
+of them. Whether it helps depends on how often your content changes:
+
+- **Your content changes meaningfully with most releases.** The workflow fits. You were
+  going to create those branches anyway, and it removes a step that is easy to forget.
+- **Your content stays the same across most releases.** You do not need it. Each branch is
+  a copy of your base branch from the moment the job ran, so you would hold many identical
+  branches and maintain one per release if the content later diverges.
+
+In the second case, leave "Require matching content for release versions" off so a release
+resolves to the nearest lower branch, and pin any release where resolution picks the wrong
+content from the Content tab.
 
 ## What it does
 
@@ -25,6 +35,9 @@ When it runs, the workflow:
 3. Creates a branch for any version that does not already have one, cut from your base branch.
 
 It only ever creates branches. It never force-updates and it never deletes.
+
+Limit `channels` to those your customers use. Reconciling an unstable or development
+channel creates a permanent branch for every development release.
 
 ## Quick start
 
