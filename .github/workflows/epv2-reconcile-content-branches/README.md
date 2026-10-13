@@ -5,8 +5,8 @@ release on the channels you choose, so each release resolves to a branch named f
 
 ## Is this the right tool for you?
 
-Enterprise Portal v2 resolves a release to content in three ways, and this workflow is one
-of them. Whether it helps depends on how often your content changes:
+Enterprise Portal v2 resolves a release to content in this order, and this workflow
+automates one step of it. Whether it helps depends on how often your content changes:
 
 - **Your content changes meaningfully with most releases.** The workflow fits. You were
   going to create those branches anyway, and it removes a step that is easy to forget.
@@ -32,10 +32,10 @@ version of every release, cut from your base branch, so each release can have it
 content instead of inheriting the nearest lower branch's. You need that only if you want
 "Require matching content for release versions" on (it restricts which releases appear in
 the customer's version dropdown; it never causes a 404) or you want different docs for
-every release. The exact-match lookup itself is vandoor's
-`GetVersionByRepoAndBranch(ctx, repoID, branch)` in
-`handlers/vendor-api/replv3/enterprise_portal/content_version_pin.go`; this workflow keeps
-the branches it creates matching what that lookup expects.
+every release. See the
+[Enterprise Portal v2 versioned docs](https://docs.replicated.com/vendor/enterprise-portal-v2-versioned-docs)
+page above for how the exact-match lookup works; this workflow keeps the branches it
+creates matching what that lookup expects.
 
 When it runs, the workflow:
 
