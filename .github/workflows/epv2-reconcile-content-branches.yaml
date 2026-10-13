@@ -1,9 +1,10 @@
-# Enterprise Portal v2 links docs content to a Replicated release ONLY when a git
-# branch in the docs repo is named EXACTLY the bare release version label (e.g.
-# `0.3.312`). See .github/workflows/epv2-reconcile-content-branches/README.md for
-# the rule and the vandoor reference. This reusable workflow ensures a content
-# branch exists for every release across the configured channels, so releases stop
-# 404-ing in the portal. It only ever creates branches; it never deletes.
+# Enterprise Portal v2 resolves each release's docs content via a pin, then an exact
+# branch match, then the nearest lower branch, then main -- a release with no branch
+# of its own still gets docs, not a 404. This workflow creates the exact-match branch
+# for every release across the configured channels, for vendors who want a branch per
+# release. See .github/workflows/epv2-reconcile-content-branches/README.md for the
+# full resolution order and when you need this. It only ever creates branches; it
+# never deletes.
 name: EPv2 Reconcile Content Branches
 
 on:

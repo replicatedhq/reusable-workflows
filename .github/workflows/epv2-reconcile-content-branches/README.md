@@ -20,13 +20,23 @@ content from the Content tab.
 
 ## What it does
 
-EPv2 links docs content to a release only when a real git branch in your docs repo is
-named exactly the bare release version label. That means `0.3.312`, not `v0.3.312` and not
-`release/v0.3.312`. With the toggle on, a release with no matching branch 404s in the
-portal. That exact-match rule is the whole contract, and it comes from the vendor API code
-in vandoor (`handlers/vendor-api/replv3/enterprise_portal/content_version_pin.go`,
-`GetVersionByRepoAndBranch(ctx, repoID, branch)`). This workflow encodes that rule and
-unit-tests it, so the branches it creates always match what the portal looks for.
+EPv2 resolves each release to docs content in this order: a pin set on the release, then an
+exact match to a git branch named for the release version, then the nearest lower semver
+branch, then `main`. A release with no branch of its own still shows docs -- the nearest
+lower branch's, not a 404. See
+[Enterprise Portal v2 versioned docs](https://docs.replicated.com/vendor/enterprise-portal-v2-versioned-docs)
+for the full rule. A leading `v` is normalized, so a branch named `v0.3.312` matches release
+`0.3.312` too, including for the "Require matching content for release versions" setting.
+
+This workflow automates the exact-match step: it creates a branch named for the bare
+version of every release, cut from your base branch, so each release can have its own
+content instead of inheriting the nearest lower branch's. You need that only if you want
+"Require matching content for release versions" on (it restricts which releases appear in
+the customer's version dropdown; it never causes a 404) or you want different docs for
+every release. The exact-match lookup itself is vandoor's
+`GetVersionByRepoAndBranch(ctx, repoID, branch)` in
+`handlers/vendor-api/replv3/enterprise_portal/content_version_pin.go`; this workflow keeps
+the branches it creates matching what that lookup expects.
 
 When it runs, the workflow:
 
@@ -182,12 +192,14 @@ alignment, invoke it via `workflow_dispatch` from the same workflow that promote
 Replicated release, right after the promotion step. After that first cut, the branch is
 yours to customize.
 
-### Version labels must be bare versions
+### This workflow only acts on bare version labels
 
 If a channel returns releases but none of them are bare `MAJOR.MINOR.PATCH` versions, the
-workflow emits a warning annotation. That usually means a label-scheme mismatch: a `v`
-prefix, calver, or build metadata. It is also why the portal keeps 404-ing even though
-releases exist. Fix the labels so they are bare versions.
+workflow emits a warning annotation and creates no branches for that channel -- that's this
+workflow's own filter (see [What it does](#what-it-does)), not a sign anything is broken.
+Releases labeled with a `v` prefix, calver, or build metadata still resolve through the
+portal's normal order; you only need to act on the warning if you specifically want this
+workflow to create a per-release branch for those versions too.
 
 If none of your configured channels resolve at all, the workflow fails the run rather than
 quietly reporting success. That is almost always a typo in the `channels` input or a token
@@ -199,8 +211,10 @@ that cannot see the app.
 Anything older than the window is skipped (and logged, never silently dropped). Set it
 higher than the number of releases still live on each channel, or you will silently miss
 coverage for older-but-still-live releases: if a customer is pinned to a release that has
-fallen outside the window, its content branch never gets created and the portal keeps
-404-ing for them. The default of `20` fits a short support window; if you support releases
+fallen outside the window and has no branch of its own, resolution falls through to
+whatever the portal picks next (the nearest lower branch, or `main`) instead of a branch
+made for it. That's not a 404, but it may not be the content you intended for a release
+that's still live. The default of `20` fits a short support window; if you support releases
 going back further than your 20 newest per channel, raise it to comfortably exceed your
 longest live-release count.
 
