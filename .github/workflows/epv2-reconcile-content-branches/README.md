@@ -22,8 +22,7 @@ content from the Content tab.
 
 EPv2 resolves each release to docs content in this order: a pin set on the release, then an
 exact match to a git branch named for the release version, then the nearest lower semver
-branch, then `main`. A release with no branch of its own still shows docs -- the nearest
-lower branch's, not a 404. See
+branch, then `main`. A release with no branch of its own still shows docs. See
 [Enterprise Portal v2 versioned docs](https://docs.replicated.com/vendor/enterprise-portal-v2-versioned-docs)
 for the full rule. A leading `v` is normalized, so a branch named `v0.3.312` matches release
 `0.3.312` too, including for the "Require matching content for release versions" setting.
